@@ -141,8 +141,7 @@ download_and_extract_agent() {
     PACKAGE="${PACKAGE_NAME}_${VERSION}_${OS}_${ARCH}.tar.gz"
 
     #TODO: remove this and point to our repo
-    # DOWNLOAD_URL="${BASE_URL}/v${VERSION}/${PACKAGE}"
-    DOWNLOAD_URL="https://github.com/ak-17/fictional-eureka/raw/refs/heads/main/edge.linux.tar.gz" # Example URL
+    DOWNLOAD_URL="${BASE_URL}/v${VERSION}/${PACKAGE}"
     echo "Downloading from $DOWNLOAD_URL"
 
     if ! curl --head -s -L "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
@@ -160,7 +159,7 @@ download_and_extract_agent() {
     echo "Extraction complete. Files are in $EXTRACT_DIR"
 }
 
-move_to_bin() {
+move_to_bin_and_make_executable() {
     # Find the actual binary (ignoring macOS metadata)
     BINARY_FILE=$(find "$EXTRACT_DIR" -type f -executable ! -name "._*" | head -n 1)
 
@@ -178,6 +177,10 @@ move_to_bin() {
 
 }
 
+start_server() {
+    echo "starting server"
+}
+
 
 # 1. check and parse environment variable
 if ! parse_environment_variable "$@"; then exit 1; fi # Check if parsing was successful.
@@ -189,7 +192,7 @@ dependencies_check
 detect_system
 
 #4. decode and extract config from base64 encoded token.
-#   store  the config at $CONFIG_FILE
+#   store  the config at $CONFIG_FILE location
 decode_and_extract_config
 
 #5. construct the download url required for the system and download the tar
@@ -197,7 +200,10 @@ decode_and_extract_config
 download_and_extract_agent
 
 #6. move the binary to $INSTALL_DIR and give execution permissions
-move_to_bin
+move_to_bin_and_make_executable
+
+#7. Start server
+start_server
 
 #TODO
 # 1. systemctl / initd for restart management
