@@ -1,12 +1,39 @@
 #!/bin/bash
 
+OBSERVO_HEADING="
+       #######    ######      #####     #######    ######     #     #    #######              #       ###                      
+       #     #    #     #    #     #    #          #     #    #     #    #     #             # #       #                       
+       #     #    #     #    #          #          #     #    #     #    #     #            #   #      #                       
+       #     #    ######      #####     #####      ######     #     #    #     #           #     #     #                       
+       #     #    #     #          #    #          #   #       #   #     #     #    ###    #######     #                       
+       #     #    #     #    #     #    #          #    #       # #      #     #    ###    #     #     #                       
+       #######    ######      #####     #######    #     #       #       #######    ###    #     #    ###                      
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+ ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### 
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+ ####### ######   #####  #######    ### #     #  #####  #######    #    #       #          #    ####### ### ####### #     #    
+ #       #     # #     # #           #  ##    # #     #    #      # #   #       #         # #      #     #  #     # ##    #    
+ #       #     # #       #           #  # #   # #          #     #   #  #       #        #   #     #     #  #     # # #   #    
+ #####   #     # #  #### #####       #  #  #  #  #####     #    #     # #       #       #     #    #     #  #     # #  #  #    
+ #       #     # #     # #           #  #   # #       #    #    ####### #       #       #######    #     #  #     # #   # #    
+ #       #     # #     # #           #  #    ## #     #    #    #     # #       #       #     #    #     #  #     # #    ##    
+ ####### ######   #####  #######    ### #     #  #####     #    #     # ####### ####### #     #    #    ### ####### #     #    
+                                                                                                                               
+"
+
+
 PREREQS="sudo curl jq"
 INSTALL_DIR="/opt/observo"
 TMP_DIR="/tmp/observo"
 CONFIG_DIR="/opt/observo"
 TAR_FILE="$TMP_DIR"/edge.tar.gz
-EXTRACT_DIR="$CONFIG_DIR/edge"
-EXEC_PATH="$INSTALL_DIR"/edge
+EXTRACT_DIR="$CONFIG_DIR/binaries_edge"
 PACKAGE_NAME="otelcol-contrib"
 CONFIG_FILE="$CONFIG_DIR"/edge-config.json
 BASE_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download"
@@ -145,7 +172,7 @@ download_and_extract_agent() {
 
     #TODO: remove this and point to our repo
     # DOWNLOAD_URL="${BASE_URL}/v${VERSION}/${PACKAGE}"
-    DOWNLOAD_URL="https://observo-service-images.s3.us-east-1.amazonaws.com/edge-binaries/edge-binaries.tar.gz?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjENT%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCXVzLWVhc3QtMSJHMEUCIFln1eCOPKQxanXrkdfkVpVf%2FuYjPKHkeli65%2BLP4uYBAiEAv62GY96vSr%2FOOcgQdU3wKVbHW%2FX9kOV5mEBIzj526dQq6wMI7f%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARABGgw4MjI0MzQzNDY5MzkiDELpCHBy4ba8huRiOSq%2FAzOVCUXS%2FiPioSLAxJLkGXvRzx6mjPl3qValPg%2FCDxo%2BiozKBxJm%2FaN2lYhAsZOqQc%2BjgZHmypqkQUKhZGJy0sFHJGsfPR9KOToaVj4BGR5TeJ4bjSjofVT7uVAdZW4YhaE6%2FxZ3Qq4tRwjy2qGsDFULmfe7HMx1oSqnk7OSfyb1aThDl5qwHykf8f92%2BdH40NsDNUd8M0HCA0Xh7g9%2By4GxAIw3cs%2BXW2ndOz7bIyfrw8CIlWg8CrB9Bi%2FpXvf7J20Jn486KYqSD%2BxV0%2Fo48fnnHh4PIbvwo3UoyuEPeXzaKmqIjPKfXGbPDxqWq7KbRF%2FNpJ%2BtrqXpMiOxEShNTrECr%2BNTrKI03LphOp372BCU%2FOMckkG6QiLsIFF%2BBeSxcrHVBuk3ahFjjsidODFKPZsbJflkhavNjXzj4jeOb6Ru%2FjTCSrTcvEFcSv1IvR9VpTEnHGVvwgf0Y6VE57AGzkWI0ki%2FMgc22w7Y%2Fc5d8MrA%2Fz1q%2FacjfvKRi3o98okh6rdIsOloTQlt51ulfC36TnWjS8REPexD8oFUvfULjvNLZ7QufXyHVXBS7dn94HPFpoX57QZKmKOiGX7cOdnITTDr37G9BjrkAgf5bGY7pDoHQxRLehIxSChjTpUQ5eWbf3%2BFyeTqERCAMe%2B7vZc%2B7Em2HoSJ0cr6cM4yTEs8oXDEn4war8OphqofjpQ13%2BKc6yYSiQ%2BlrTXlVH5nCS%2Bb55zV2vHdRKjZBzX93sRwQWps9TQHxxerYgbxEygtiksBd7HSXWfG4g0MEQAcqkMopCu5QIqdX6VIcwqieRrnuXFUXwOMnO4%2BGxYmuf7vF5HaeRuRV8dEmlob%2FuhNcgGRfZRS6fvhMq6aNrt5qgBpiUC06RCQXSA54THdjB5qKgFOHqXRouNt0gCAH9uX5fWUBIABOcg1Uzz60w2%2BLsfxLIyUT0xtk5ZojVKVdHErG6jX2zoUDJ7FAE7ZRDS21EECAg4S0kDDJd%2BsGy%2BEQ9dWIM0OWlTZuw5Bat25WP7nyo5ZzM7noIVaTwZ28he7jS4dxm29uP5YIszJMkXSeNYitHlqYpsyXqLOJv2JHacj&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA367HIG656THP6ONY%2F20250212%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250212T114433Z&X-Amz-Expires=43200&X-Amz-SignedHeaders=host&X-Amz-Signature=f84df5697be3ef75a55e83c02ea9b7eea752a3a5276bf438316e089c626b6378"
+    DOWNLOAD_URL="https://observo-service-images.s3.us-east-1.amazonaws.com/edge-binaries/linux_amd64.tar.gz?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEOz%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCXVzLWVhc3QtMSJIMEYCIQDEj6rWMa353BRRg5ntmcJxm74wBkqDwTRc%2F8ABtb8JjgIhAKnVZe10az8OErK%2FbbQ%2BSQ%2FXNtb9yLqKFrZ9JBQCD6%2FrKuIDCBUQARoMODIyNDM0MzQ2OTM5IgxxLBMMWt0GcvnDwoMqvwP6bLIGPs2UHl%2Fl%2FbTml6KQKfGYkQEbOM8Y3oWHQb8Lcx9k%2F1mAVVNy2eRBTFVaJIvJHl7doQEVa1lUzs32WFT1bdte8Pwxb2WA2ApHWRkx%2F48eFp4Xld8LzgwFkPWlHSvrty4qfyvj0ttihCzsGa5SlOL2WlLP%2FKX%2B3bAoIl6sMiPPAzSs8%2FFyfv8DAn2CxGADvUwPIAufZViQeTmYnw5Z3%2FCMKcxwcL8X8zMmdxw5HjrMQZMaJBN4L7v%2Bu%2F5ha2wJQBJH4%2BXGo6R3suSroGZc7ldO1K1oHB9gOPB9vOQq1OcQZgw8lHlLIzSSjnZr1KQVFqklCWBOB2dL6iVLNBnj9OPFAfauWVhbt9OUiO%2BZZuFjwD3mF%2FR05kC8Nzrsbre0oD%2B9rLm4WvjWIwk4qxZEhB7cu%2FAP0qpTOpNE72O%2BOtYAGrPBil11mgDAttNDVloVpoRDoKUaPOXhuZIQHgGc6ABFud%2FDnUPAFRWee0RxM6Gb72wV75IeESG3e6vmBsAKRx6gx0SMaTp7GPBTH7aB1Z02rfmC8Xv7Sdoq0%2Btn9cdL1QUcwzEwW7ow0NFOM9zT3nHre1LgThaKSRA7C%2F4wi723vQY64wIUTGNat8dYtLoctvl4x35Xj2gx8hm%2BmaGF5U%2F0NGmVqvsTSQ380zVQ7817a7jNPiujT2RpJkS%2FvZBHrJlA1%2BiFkwcAaAONYr4nu2dNqJQKNPlfNJcLYusLvGA71VhgdQ1LT9WR%2FD5Pck0F9zr4E0LCWWXUkf7f5GHZATYf3oEqNOkU%2BB27xLyBlp1hpHjhB2%2FIJHl5h19j1VpY1QHc9muEWXFP99gyBOe3Cv%2BEHX95B4EYUA0NprHi17Kkq0PHsxLng0o6DGugK9oUKAl5X2U3YxBhmnCLemJWZGWLAZqDroSqdjFYLm9UFYz5LdTHpeEFMguOCEwWGNCtuf2UE7HTNI%2FdbOCKPMLm%2B06EpYORGUkYk5K13eDtMWWINUfRSTVc7vVHBBQNmnxOrXhOOu2KgI22DjMOdQtiyp%2BsCPTRUULutGPqLsroiqDLjDuZtmH%2FXtjO%2BndKsPLhF5OdqFSoI%2F99&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA367HIG65ZQX5TPVU%2F20250213%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250213T120258Z&X-Amz-Expires=43200&X-Amz-SignedHeaders=host&X-Amz-Signature=1cb3f7faf307893dc099a7754cb183478a6cd3fca9c319a70e852ec065478e64"
     echo "Downloading from $DOWNLOAD_URL"
 
     # if ! curl --head -s -L "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
@@ -179,7 +206,7 @@ move_to_bin_and_make_executable() {
     BIN_NAME=$(basename "$OTEL_BINARY_FILE")
     sudo chmod +x "$INSTALL_DIR/$BIN_NAME"
 
-    EDGE_BINARY_FILE=$(find "$EXTRACT_DIR" -type f -executable -name "edge_*" | head -n 1)
+    EDGE_BINARY_FILE=$(find "$EXTRACT_DIR" -type f -executable -name "edge*" | head -n 1)
 
     if [[ -z "$EDGE_BINARY_FILE" ]]; then
         echo "Error: No executable file found in $EXTRACT_DIR!"
@@ -195,26 +222,32 @@ move_to_bin_and_make_executable() {
 
     echo "deleting $EXTRACT_DIR"
     rm -rf $EXTRACT_DIR
+    rm -rf $TMP_DIR
 
 }
 
 start_server() {
     echo "starting server"
-    EDGE_BINARY_FILE=$(find "$INSTALL_DIR" -type f -executable -name "edge_*" | head -n 1)
+    EDGE_BINARY_FILE=$(find "$INSTALL_DIR" -type f -executable -name "edge" | head -n 1)
+    echo "$EDGE_BINARY_FILE"
 
     if [[ -z "$EDGE_BINARY_FILE" ]]; then
         echo "Error: No executable file found in $INSTALL_DIR!"
         exit 1
     fi
-    echo "nohup \"$EDGE_BINARY_FILE\" > output.log 2>&1 &"
-    nohup "$EDGE_BINARY_FILE" > output.log 2>&1 &
-    sleep 5  # Give some time to start
-    ps aux | grep "$(basename "$EDGE_BINARY_FILE")" | grep -v grep
+    echo "nohup $EDGE_BINARY_FILE > $INSTALL_DIR/output.log 2>&1 &"
+    nohup "$EDGE_BINARY_FILE" > "$INSTALL_DIR/edge_output.log" 2>&1 &
+    echo $! > "$INSTALL_DIR/edge.pid"
+    echo "Observo Edge started with PID $(cat "$INSTALL_DIR/edge.pid")"
 }
 
 
+echo "$OBSERVO_HEADING"
+
 # 1. check and parse environment variable
 if ! parse_environment_variable "$@"; then exit 1; fi # Check if parsing was successful.
+
+
 
 #2. check for dependencies needed are present. install if missing
 dependencies_check
