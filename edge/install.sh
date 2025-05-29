@@ -37,11 +37,13 @@ EXTRACT_DIR="$CONFIG_DIR/binaries_edge"
 PACKAGE_NAME="otelcol-contrib"
 CONFIG_FILE="$CONFIG_DIR"/edge-config.json
 BASE_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download"
-    
+SERVICE_NAME="observo-agent"
+LOG_DIR="/var/log/observo"
+USER="observo"
 
 dependencies_check() {
     echo "Checking for script dependencies..."
-    
+
     # Detect package manager
     if command -v apt &>/dev/null; then
         sudo apt-get update
@@ -60,7 +62,7 @@ dependencies_check() {
     fi
 
     $PKG_MANAGER $cmd || { echo "Failed to install $cmd"; exit 1; }
-    
+
     # Check for missing dependencies
     for cmd in $PREREQS; do
         if ! command -v $cmd &>/dev/null; then
@@ -95,7 +97,7 @@ parse_environment_variable() {
     if [[ "$env_var" =~ install_id=([A-Za-z0-9+/=]+) ]]; then
         TOKEN="${BASH_REMATCH[1]}"  # Extract the base64-encoded token value
         echo "Extracted install_id (base64): $TOKEN"
-        
+
         # Decode the base64 string
         DECODED=$(echo "$TOKEN" | base64 --decode)
         echo "Decoded install_id (JSON): $DECODED"
@@ -172,7 +174,7 @@ download_and_extract_agent() {
 
     #TODO: remove this and point to our repo
     # DOWNLOAD_URL="${BASE_URL}/v${VERSION}/${PACKAGE}"
-    DOWNLOAD_URL="https://observo-service-images.s3.us-east-1.amazonaws.com/edge-binaries/linux_amd64.tar.gz?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEBEaCXVzLWVhc3QtMSJGMEQCIQDBkNS0BWxOdgpAMwtc0TeNfBi6b71TqY4WJcd0lvwvQAIfJGGs7cgxce9kRpW3vRnMCL%2FoYjLGcxtfEAiMvIi7miriAwhKEAEaDDgyMjQzNDM0NjkzOSIMRF0AuutR%2BcnAzil7Kr8D6IM4xdgynS8%2FtjyTmi%2FsGVwK1b1TVfVzq1Rmvq8hW0VkqgBaw3JVII7S1vAtVJ1sQNegHn%2Bs1kjLppt1CJF%2Bk2kb96N6PEORgHqE0sSGxBsQETItbuDCIX1hcG%2B8fs5s2Ouwzgo8jKIZXRCvGpnrdSOQ8yW7GqFW0nIznAIHt8QmbeGhp72749D9sybgOAI5WKFXfu3KQSDPQJcmWyd2zMcGB340GI4wqRJvq3e3Nk6e0Np12yOWwZoEFpr6UxHYZlToQVFxNH%2B7awptuRo8rmFpopTnZZDmtr7uHT%2B0pJFXI6EB%2F%2FEbyr41VUowjwjIBM8iObOackSWauy2jJZKcqq%2BtxwdRRgMX8u4FsbIkJvFk8dyBtunL3Am%2FxoKNELWBBlGNr96pXzSFktdyeHEmeh8LeD87Gnp6Oyoi7hG7HKYLkaO6M6VvVOdgzQ%2BtTl4FRQml2Dwk9K7uZBlT0bM3IS%2BKZPVFqTIFe9NNiQlCY3LRNmcVA3QNdLmornEsT0lU9XrndRc0RGXUFYNY3nVWQvcuBqnOG6c6%2Biur7SBlft2KM6bdB%2FOAPpZ0zKogCqbjXKP%2FRnJ3sv2yB7DmHjeMJrq970GOuUChBtlMyfvL1XIBdJwneJ3dAK%2FX3fgP36DUh9N2n8OHu%2BZeGOk9W%2FOKrmPcEDsveNTLZscvh%2F3pg7S27O3BwKDtWSnYZ5M97uBoToBf0Iyn2Rg5sL1fCz52c1VGPp6XkgMcinPFMeDAruDkFRVFItrIs%2Fq25vByT5tIJYDdT2yPkhGT%2BBJ7%2BdCd4rMdIDbZmXoh4XWtv7gbQ6dCiP91HjQTemJd9rCCriW7HdJfIrqTCiFmtieMioeDwbbVkvI4G0V5nQx1gEIHqhCAym7cn%2BHGvqRb4UsVgiTPHVwQM8xR5DQbBhTyHBmQRv25HJmEOBXmChD0mKl4ynkLOHfu3ryJ%2FNjU%2FjfEtqxC1EyBe8oIoLYfp10CoU5Y3m15ikTbKXftFnH37l1zAAh8R7O1Uwp2y1QP3OwYgo2z521tYS%2FpskIRVPk4PPVlhnSG3V%2FwwTVf5zi2HqS%2FkOznNdxzoi4veneaOgn&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA367HIG652PWFDEPI%2F20250225%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250225T165243Z&X-Amz-Expires=43200&X-Amz-SignedHeaders=host&X-Amz-Signature=65fd2b2554ea363e5a29fef4d70a0be79f91e0a406dc0be6bef5a4c04c498e61"
+    DOWNLOAD_URL="https://observo-service-images.s3.us-east-1.amazonaws.com/edge-binaries/linux_amd64.tar.gz?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEMP%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCXVzLWVhc3QtMSJIMEYCIQCSluywFoa0FDSOTvwKEbLHIRubXoqYjkvXSrA70D0a0QIhAOPEC%2FHPP3nB%2F1r3JVg6CU2ic%2Fk312SbuYlOY8PfoQ0wKtkDCIz%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEQARoMODIyNDM0MzQ2OTM5IgywDFwg%2FCdh0McASFoqrQOc%2Fh2xzNaBBcK55PiWKD4k%2Fg%2F8ZFJv2BSSkTr6pXHoXgi4zktv5hixMl0e8VRl9XWXgWxTfPdSa%2F0eIYEpqfuCxcpQgLf6WKxPB%2BeJBxbvy46ocLoC%2F6ZK595DI4y5wP34%2B2PlmYkg5VzjQNYaK0J06OHGwwdkt3A3DchxCoAwQomeNSg8kQu3vi8kwA%2FjnUEZDRjH4U2YBef5xWF1LO2iEozjY5J2e9t9ELiO36vZE%2BbwuzG6MxI9NcQnf8WarvRgYp6TyCw2G8ZkPe4YUUawuvYfEN1tsFbQ2Gmrt6nGMPzQc0gPNDqv08TgOm9aEipC01SoatctWJbjCnPG99QPm1S9nrl70%2FoDIt9On53zrLGL5CdcrBPL2cp9L45XJrr9Ix%2F%2BNIg5KdmBD5X%2BoH2pmIQ9wNVYZ5N5d0lRhTMTeuvYKXqBk5v3o7K4YYQGzZZgse43qtz%2F%2BeTsxMhsEHdX%2F2NqAd%2BTr4mWz%2FAwSy6Zr9mhD1yWb%2Fr%2F%2B%2F3ao0morED9j6wAK1j84iN1CFSFetZ7%2FfbyG3CSvU6kWVbKq1q7pc0Urf9hEN1DSDcH8SUwjuvgwQY63QLx7HJvaqCNGPQ1lzq2DhwClK3btWf5abK8%2Bij0VCg5jjOVl2ZCuBCkzJIHS%2FqHrwthQa2q%2BgaO2LXPaOHKe9Yq9eLBCd04bOkn%2FdQzbivfrgtpd8wAJk%2BmWa3oohcXe%2BzpA3If3LN2385leJo7gOUGE9%2B%2BHmYJsqpyCV%2BZ0qJV1XWyxEIcSAPjNGaAvC%2B1v7IzvQAWwYmGeO7JnQAyP7kE8KiIC2LU9byVRrmp8NaYQXDqapZpNqsCjrqnSZJE0bimNWkmL5cXkn%2F1lWvCW6%2FpG1BR8cxYnKHILmAa6TOh%2FGB%2BCsNV7ccNefqI6egqiALnb4n8iqqj2Z1r464QlK5PZkpJwgmXC%2FtDW0pNTP4qeY4JIhcHdFFPu3xVozCAaaTG%2FE60OX06GfVAlUDeeEeRBykM7qffxXeLHKeHNFOBDVz16t79uK9AnqkW7kLz5PQWrdSVI4IeFS%2FN7Bp%2B&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA367HIG65VW23I322%2F20250529%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250529T102341Z&X-Amz-Expires=43200&X-Amz-SignedHeaders=host&X-Amz-Signature=3de02a4299f6fa41f5574a5db566669349e2c09b8c152533e441562911a8dadc"
     echo "Downloading from $DOWNLOAD_URL"
 
     # if ! curl --head -s -L "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
@@ -241,33 +243,136 @@ start_server() {
     echo "Observo Edge started with PID $(cat "$INSTALL_DIR/edge.pid")"
 }
 
+create_system_user() {
+    echo "Creating system user and group: $USER"
+    unameOut="$(uname -s)"
+    case "${unameOut}" in
+        Linux*)
+	    echo "Linux"
+            if command -v useradd &>/dev/null; then
+                if ! getent group "$USER" > /dev/null; then
+                    echo "Creating group '$USER'..."
+                    groupadd --system "$USER" || echo "Group creation failed"
+                fi
+
+                if ! id "$USER" &>/dev/null; then
+                    echo "Creating system user '$USER'..."
+                    useradd --system --no-create-home --shell /usr/sbin/nologin --gid "$USER" "$USER" || echo "User creation failed"
+                fi
+
+            elif command -v adduser &>/dev/null; then
+                if ! getent group "$USER" > /dev/null; then
+                    sudo addgroup -S "$USER"
+                fi
+
+                if ! id "$USER" &>/dev/null; then
+                    adduser -S -H -s /sbin/nologin -G "$USER" "$USER"
+                fi
+            fi
+            ;;
+        Darwin*)
+            echo "macOS detected. Please create user manually or handle via launchd if needed."
+            ;;
+        CYGWIN*|MINGW*|MSYS*)
+            echo "Windows detected. User creation not supported in this script."
+            ;;
+        *)
+            echo "Unsupported OS. Please create user manually."
+            exit 1
+            ;;
+    esac
+}
+
+setup_log_directory() {
+    echo "Setting up log directory: $LOG_DIR"
+
+    if [ ! -d "$LOG_DIR" ]; then
+        echo "Creating log directory..."
+        mkdir -p "$LOG_DIR" || { echo "Failed to create log directory"; exit 1; }
+    else
+        echo "Log directory already exists."
+    fi
+
+    echo "Setting ownership to $USER:$USER"
+    chown "$USER:$USER" "$LOG_DIR" || { echo "Failed to set ownership on log directory"; exit 1; }
+}
+
+create_systemd_service() {
+    echo "Setting up systemd service for Observo Edge..."
+
+    unameOut="$(uname -s)"
+    if [[ "$unameOut" != "Linux" ]]; then
+        echo "Systemd setup is only supported on Linux. Detected OS: $(uname -s)"
+        return
+    fi
+
+    EDGE_BINARY="$INSTALL_DIR/edge"
+
+    if [[ ! -f "$EDGE_BINARY" ]]; then
+        echo "Error: $EDGE_BINARY not found!"
+        exit 1
+    fi
+    SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+    echo "Creating systemd service file: $SERVICE_FILE"
+    tee "$SERVICE_FILE" > /dev/null <<EOF
+[Unit]
+Description=Observo Agent Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$EDGE_BINARY
+Restart=always
+RestartSec=5
+User=$USER
+Group=$USER
+
+StandardOutput=append:$LOG_DIR/observo-agent.log
+StandardError=append:$LOG_DIR/observo-agent.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    echo "Reloading systemd daemon..."
+    sudo systemctl daemon-reexec || echo "daemon-reexec failed"
+    sudo systemctl daemon-reload || echo "daemon-reload failed"
+
+    echo "Enabling and starting $SERVICE_NAME..."
+    sudo systemctl enable "$SERVICE_NAME" || echo "Enable failed"
+    sudo systemctl restart "$SERVICE_NAME" || echo "Restart failed"
+}
 
 echo "$OBSERVO_HEADING"
 
-# 1. check and parse environment variable
+#1 create user and group
+create_system_user
+
+#2 setup log directory
+setup_log_directory
+
+#3 check and parse environment variable
 if ! parse_environment_variable "$@"; then exit 1; fi # Check if parsing was successful.
 
-
-
-#2. check for dependencies needed are present. install if missing
+#4. check for dependencies needed are present. install if missing
 dependencies_check
 
-#3. identify arch
+#5. identify arch
 detect_system
 
-#4. decode and extract config from base64 encoded token.
+#6. decode and extract config from base64 encoded token.
 #   store  the config at $CONFIG_FILE location
 decode_and_extract_config
 
-#5. construct the download url required for the system and download the tar
+#7. construct the download url required for the system and download the tar
 #   extract binary at $TMP_DIR
 download_and_extract_agent
 
-#6. move the binary to $INSTALL_DIR and give execution permissions
+#8. move the binary to $INSTALL_DIR and give execution permissions
 move_to_bin_and_make_executable
 
-#7. Start server
+#9. Start server
 start_server
 
-#TODO
-# 1. systemctl / initd for restart management
+#10 create systemd service
+create_systemd_service
+
