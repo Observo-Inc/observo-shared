@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: observo-client
+  namespace: {{ .Values.namespace }}
+  labels:
+    k8s-app: observo-client
+spec:
+  selector:
+    matchLabels:
+      app: observo-client
+  template:
+    metadata:
+      labels:
+        app: observo-client
+    spec:
+      serviceAccountName: observo-client
+      tolerations:
+      {{- toYaml .Values.tolerations | nindent 6 }}
+      initContainers:
+      - name: copy-config
+        image: busybox
+        command:
+          - "sh"
+          - "-c"
+          - |
+            cp /config/edge-config.json /opt/observo/;
+        volumeMounts:
+        - name: edge-config-volume
+          mountPath: /config/
+        - name: opt-observo
+          mountPath: /opt/observo/
+      containers:
+      - name: observo-client
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        - name: EDGE_CONFIG_PATH
+          value: /opt/observo/edge-config.json
+        - name: OTEL_LOG_FILE_PATH
+          value: /opt/observo/edge-collector.log
+        - name: OTEL_CONFIG_PATH
+          value: /opt/observo/effective.yaml
+        - name: OTEL_EXECUTABLE_PATH
+          value: /opt/observo/otelcol-contrib
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: edge-config-volume
+          mountPath: /config/
+          readOnly: true
+        - name: opt-observo
+          mountPath: /opt/observo
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: edge-config-volume
+        configMap:
+          name: edge-config
+      - name: opt-observo
+        emptyDir: {}
+      - name: usr-bin
+        hostPath:
+          path: /usr/bin/
+          type: Directory
+      {{- if .Values.image.pullSecret.enabled }}
+      imagePullSecrets:
+        - name: {{ .Release.Name }}-ecr-pull-secret
+      {{- end }} 
