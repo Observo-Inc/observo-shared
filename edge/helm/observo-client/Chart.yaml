@@ -1,0 +1,6 @@
+apiVersion: v2
+name: observo-client
+description: A Helm chart for Observo Client
+type: application
+version: 0.1.0
+appVersion: "1.0.0" 
