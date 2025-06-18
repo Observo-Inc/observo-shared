@@ -37,11 +37,13 @@ EXTRACT_DIR="$CONFIG_DIR/binaries_edge"
 PACKAGE_NAME="otelcol-contrib"
 CONFIG_FILE="$CONFIG_DIR"/edge-config.json
 BASE_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download"
-    
+SERVICE_NAME="observo-agent"
+LOG_DIR="/var/log/observo"
+USER="observo"
 
 dependencies_check() {
     echo "Checking for script dependencies..."
-    
+
     # Detect package manager
     if command -v apt &>/dev/null; then
         sudo apt-get update
@@ -60,7 +62,7 @@ dependencies_check() {
     fi
 
     $PKG_MANAGER $cmd || { echo "Failed to install $cmd"; exit 1; }
-    
+
     # Check for missing dependencies
     for cmd in $PREREQS; do
         if ! command -v $cmd &>/dev/null; then
@@ -101,6 +103,7 @@ parse_environment_variable() {
         echo "Decoded install_id (JSON): $DECODED"
 
         export TOKEN # Make TOKEN available to other functions. Crucial!
+        return 0 # Success
     else
         echo "Error: install_id not found in argument"
         return 1 # Failure
@@ -252,33 +255,136 @@ start_server() {
     echo "Observo Edge started with PID $(cat "$INSTALL_DIR/edge.pid")"
 }
 
+create_system_user() {
+    echo "Creating system user and group: $USER"
+    unameOut="$(uname -s)"
+    case "${unameOut}" in
+        Linux*)
+	    echo "Linux"
+            if command -v useradd &>/dev/null; then
+                if ! getent group "$USER" > /dev/null; then
+                    echo "Creating group '$USER'..."
+                    groupadd --system "$USER" || echo "Group creation failed"
+                fi
+
+                if ! id "$USER" &>/dev/null; then
+                    echo "Creating system user '$USER'..."
+                    useradd --system --no-create-home --shell /usr/sbin/nologin --gid "$USER" "$USER" || echo "User creation failed"
+                fi
+
+            elif command -v adduser &>/dev/null; then
+                if ! getent group "$USER" > /dev/null; then
+                    sudo addgroup -S "$USER"
+                fi
+
+                if ! id "$USER" &>/dev/null; then
+                    adduser -S -H -s /sbin/nologin -G "$USER" "$USER"
+                fi
+            fi
+            ;;
+        Darwin*)
+            echo "macOS detected. Please create user manually or handle via launchd if needed."
+            ;;
+        CYGWIN*|MINGW*|MSYS*)
+            echo "Windows detected. User creation not supported in this script."
+            ;;
+        *)
+            echo "Unsupported OS. Please create user manually."
+            exit 1
+            ;;
+    esac
+}
+
+setup_log_directory() {
+    echo "Setting up log directory: $LOG_DIR"
+
+    if [ ! -d "$LOG_DIR" ]; then
+        echo "Creating log directory..."
+        mkdir -p "$LOG_DIR" || { echo "Failed to create log directory"; exit 1; }
+    else
+        echo "Log directory already exists."
+    fi
+
+    echo "Setting ownership to $USER:$USER"
+    chown "$USER:$USER" "$LOG_DIR" || { echo "Failed to set ownership on log directory"; exit 1; }
+}
+
+create_systemd_service() {
+    echo "Setting up systemd service for Observo Edge..."
+
+    unameOut="$(uname -s)"
+    if [[ "$unameOut" != "Linux" ]]; then
+        echo "Systemd setup is only supported on Linux. Detected OS: $(uname -s)"
+        return
+    fi
+
+    EDGE_BINARY="$INSTALL_DIR/edge"
+
+    if [[ ! -f "$EDGE_BINARY" ]]; then
+        echo "Error: $EDGE_BINARY not found!"
+        exit 1
+    fi
+    SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+    echo "Creating systemd service file: $SERVICE_FILE"
+    tee "$SERVICE_FILE" > /dev/null <<EOF
+[Unit]
+Description=Observo Agent Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$EDGE_BINARY
+Restart=always
+RestartSec=5
+User=$USER
+Group=$USER
+
+StandardOutput=append:$LOG_DIR/observo-agent.log
+StandardError=append:$LOG_DIR/observo-agent.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    echo "Reloading systemd daemon..."
+    sudo systemctl daemon-reexec || echo "daemon-reexec failed"
+    sudo systemctl daemon-reload || echo "daemon-reload failed"
+
+    echo "Enabling and starting $SERVICE_NAME..."
+    sudo systemctl enable "$SERVICE_NAME" || echo "Enable failed"
+    sudo systemctl restart "$SERVICE_NAME" || echo "Restart failed"
+}
 
 echo "$OBSERVO_HEADING"
 
-# 1. check and parse environment variable
+#1 create user and group
+create_system_user
+
+#2 setup log directory
+setup_log_directory
+
+#3 check and parse environment variable
 if ! parse_environment_variable "$@"; then exit 1; fi # Check if parsing was successful.
 
-
-
-#2. check for dependencies needed are present. install if missing
+#4. check for dependencies needed are present. install if missing
 dependencies_check
 
-#3. identify arch
+#5. identify arch
 detect_system
 
-#4. decode and extract config from base64 encoded token.
+#6. decode and extract config from base64 encoded token.
 #   store  the config at $CONFIG_FILE location
 decode_and_extract_config
 
-#5. construct the download url required for the system and download the tar
+#7. construct the download url required for the system and download the tar
 #   extract binary at $TMP_DIR
 download_and_extract_agent
 
-#6. move the binary to $INSTALL_DIR and give execution permissions
+#8. move the binary to $INSTALL_DIR and give execution permissions
 move_to_bin_and_make_executable
 
-#7. Start server
+#9. Start server
 start_server
 
-#TODO
-# 1. systemctl / initd for restart management
+#10 create systemd service
+create_systemd_service
+
