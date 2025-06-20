@@ -97,7 +97,7 @@ parse_environment_variable() {
     if [[ "$env_var" =~ install_id=([A-Za-z0-9+/=]+) ]]; then
         TOKEN="${BASH_REMATCH[1]}"  # Extract the base64-encoded token value
         echo "Extracted install_id (base64): $TOKEN"
-
+        
         # Decode the base64 string
         DECODED=$(echo "$TOKEN" | base64 --decode)
         echo "Decoded install_id (JSON): $DECODED"
@@ -108,6 +108,19 @@ parse_environment_variable() {
         echo "Error: install_id not found in argument"
         return 1 # Failure
     fi
+
+    # Correct the regular expression to capture only the value after download_url=
+    if [[ "$env_var" =~ download_url=([^\ ]+) ]]; then
+        DOWNLOAD_URL="${BASH_REMATCH[1]}"  # Extract the full presigned URL
+        echo "Extracted download_url: $DOWNLOAD_URL"
+
+        export DOWNLOAD_URL  # Make it available to other functions
+    else
+        echo "Error: download_url not found in argument"
+        return 1  # Failure
+    fi
+
+    return 0 # Success
 }
 
 detect_system() {
@@ -174,7 +187,6 @@ download_and_extract_agent() {
 
     #TODO: remove this and point to our repo
     # DOWNLOAD_URL="${BASE_URL}/v${VERSION}/${PACKAGE}"
-    DOWNLOAD_URL="https://observo-service-images.s3.us-east-1.amazonaws.com/edge-binaries/linux_amd64.tar.gz?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEMP%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCXVzLWVhc3QtMSJIMEYCIQCSluywFoa0FDSOTvwKEbLHIRubXoqYjkvXSrA70D0a0QIhAOPEC%2FHPP3nB%2F1r3JVg6CU2ic%2Fk312SbuYlOY8PfoQ0wKtkDCIz%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEQARoMODIyNDM0MzQ2OTM5IgywDFwg%2FCdh0McASFoqrQOc%2Fh2xzNaBBcK55PiWKD4k%2Fg%2F8ZFJv2BSSkTr6pXHoXgi4zktv5hixMl0e8VRl9XWXgWxTfPdSa%2F0eIYEpqfuCxcpQgLf6WKxPB%2BeJBxbvy46ocLoC%2F6ZK595DI4y5wP34%2B2PlmYkg5VzjQNYaK0J06OHGwwdkt3A3DchxCoAwQomeNSg8kQu3vi8kwA%2FjnUEZDRjH4U2YBef5xWF1LO2iEozjY5J2e9t9ELiO36vZE%2BbwuzG6MxI9NcQnf8WarvRgYp6TyCw2G8ZkPe4YUUawuvYfEN1tsFbQ2Gmrt6nGMPzQc0gPNDqv08TgOm9aEipC01SoatctWJbjCnPG99QPm1S9nrl70%2FoDIt9On53zrLGL5CdcrBPL2cp9L45XJrr9Ix%2F%2BNIg5KdmBD5X%2BoH2pmIQ9wNVYZ5N5d0lRhTMTeuvYKXqBk5v3o7K4YYQGzZZgse43qtz%2F%2BeTsxMhsEHdX%2F2NqAd%2BTr4mWz%2FAwSy6Zr9mhD1yWb%2Fr%2F%2B%2F3ao0morED9j6wAK1j84iN1CFSFetZ7%2FfbyG3CSvU6kWVbKq1q7pc0Urf9hEN1DSDcH8SUwjuvgwQY63QLx7HJvaqCNGPQ1lzq2DhwClK3btWf5abK8%2Bij0VCg5jjOVl2ZCuBCkzJIHS%2FqHrwthQa2q%2BgaO2LXPaOHKe9Yq9eLBCd04bOkn%2FdQzbivfrgtpd8wAJk%2BmWa3oohcXe%2BzpA3If3LN2385leJo7gOUGE9%2B%2BHmYJsqpyCV%2BZ0qJV1XWyxEIcSAPjNGaAvC%2B1v7IzvQAWwYmGeO7JnQAyP7kE8KiIC2LU9byVRrmp8NaYQXDqapZpNqsCjrqnSZJE0bimNWkmL5cXkn%2F1lWvCW6%2FpG1BR8cxYnKHILmAa6TOh%2FGB%2BCsNV7ccNefqI6egqiALnb4n8iqqj2Z1r464QlK5PZkpJwgmXC%2FtDW0pNTP4qeY4JIhcHdFFPu3xVozCAaaTG%2FE60OX06GfVAlUDeeEeRBykM7qffxXeLHKeHNFOBDVz16t79uK9AnqkW7kLz5PQWrdSVI4IeFS%2FN7Bp%2B&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA367HIG65VW23I322%2F20250529%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250529T102341Z&X-Amz-Expires=43200&X-Amz-SignedHeaders=host&X-Amz-Signature=3de02a4299f6fa41f5574a5db566669349e2c09b8c152533e441562911a8dadc"
     echo "Downloading from $DOWNLOAD_URL"
 
     # if ! curl --head -s -L "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
