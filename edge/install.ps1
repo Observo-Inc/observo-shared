@@ -262,6 +262,7 @@ function Move-BinariesToInstallDir {
     while (-not $success -and $retryCount -lt $maxRetries) {
         try {
             Copy-Item -Path $OtelBinaryFile -Destination $TargetPath -Force
+            Copy-Item -Path $OtelBinaryFile -Destination "$InstallDir\otelcontribcol.exe" -Force
             $success = $true
         } catch {
             $retryCount++
