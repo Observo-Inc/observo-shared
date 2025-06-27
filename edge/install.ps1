@@ -80,12 +80,13 @@ function Parse-EnvironmentVariable {
 
     if (-not $EnvVar) {
         Write-Host "Error: Missing -EnvVar argument"
-        Write-Host "Usage: .\install-observo.ps1 -EnvVar 'install_id=<JWT Token>'"
+        Write-Host "Usage: .\install-observo.ps1 -EnvVar 'install_id=<JWT Token> download_url=<Custom URL>'"
         return $false
     }
 
     Write-Host "Received environment variable: $EnvVar"
 
+    # Parse install_id
     if ($EnvVar -match "install_id=([A-Za-z0-9+/=]+)") {
         $script:Token = $matches[1]
         Write-Host "Extracted install_id (base64): $Token"
@@ -95,7 +96,6 @@ function Parse-EnvironmentVariable {
             $bytes = [Convert]::FromBase64String($Token)
             $script:Decoded = [System.Text.Encoding]::UTF8.GetString($bytes)
             Write-Host "Decoded install_id (JSON): $Decoded"
-            return $true
         } catch {
             Write-Host "Error decoding base64 string: $_"
             return $false
@@ -104,6 +104,17 @@ function Parse-EnvironmentVariable {
         Write-Host "Error: install_id not found in argument"
         return $false
     }
+
+    # Parse download_url (optional) and update DefaultDownloadUrl directly
+    if ($EnvVar -match "download_url=([^\s]+)") {
+        $script:DefaultDownloadUrl = $matches[1]
+        Write-Host "Updated DefaultDownloadUrl to: $DefaultDownloadUrl"
+    } else {
+        Write-Host "No DownloadUrl provided: $DefaultDownloadUrl"
+        return $false
+    }
+
+    return $true
 }
 
 function Detect-System {
@@ -322,9 +333,13 @@ function Install-AsScheduledTask {
         Write-Host "Created log directory: $LogDir"
     }
 
+    $MachineGuid = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid).MachineGuid
+    Write-Host "MachineGuid: $MachineGuid"
+
     # Create a wrapper script that will run the edge binary and redirect output to log files
     $WrapperScript = @"
 @echo off
+set AGENT_ID=$MachineGuid
 echo Starting Observo Edge Agent at %DATE% %TIME% > "$StdoutLogFile"
 echo Starting Observo Edge Agent at %DATE% %TIME% > "$StderrLogFile"
     "$EdgeExe" -config "$ConfigFile" >> "$StdoutLogFile" 2>> "$StderrLogFile"
@@ -519,10 +534,13 @@ function Install-AsScheduledTask {
         New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
         Write-Host "Created log directory: $LogDir"
     }
+    $MachineGuid = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid).MachineGuid
+    Write-Host "MachineGuid: $MachineGuid"
 
     # Create a wrapper script that will run the edge binary and redirect all output to stdout log file
     $WrapperScript = @"
 @echo off
+set AGENT_ID=$MachineGuid
 echo Starting Observo Edge Agent at %DATE% %TIME% > "$StdoutLogFile"
     "$EdgeExe" -config "$ConfigFile" >> "$StdoutLogFile" 2>&1
 "@
@@ -571,7 +589,8 @@ Write-Host $ObservoHeading
 # Parse command line arguments
 $installId = $args[1]
 if (-not (Parse-EnvironmentVariable -EnvVar $installId)) {
-    Write-Host "Usage: .\install-observo.ps1 -EnvVar 'install_id=<JWT Token>'"
+    Write-Host "Usage: .\install-observo.ps1 -EnvVar 'install_id=<JWT Token> download_url=<Custom URL>'"
+    Write-Host "Note: download_url is optional. If not provided, the default URL will be used."
     exit 1
 }
 
