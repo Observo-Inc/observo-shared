@@ -43,7 +43,8 @@ $ServiceName = "ObservoEdge"
 $LogDir = "$InstallDir\logs"
 $StdoutLogFile = "$LogDir\observoedge_stdout.log"
 $StderrLogFile = "$LogDir\observoedge_stderr.log"
-
+$EdgeCollectorLogFile = "$LogDir\edge-collector.log"
+$OtelExecutablePath = "$InstallDir\otelcontribcol.exe"
 # Function to check for and install prerequisites
 function Check-Prerequisites {
     Write-Host "Checking for required PowerShell modules..."
@@ -262,7 +263,8 @@ function Move-BinariesToInstallDir {
     while (-not $success -and $retryCount -lt $maxRetries) {
         try {
             Copy-Item -Path $OtelBinaryFile -Destination $TargetPath -Force
-            Copy-Item -Path $OtelBinaryFile -Destination "$InstallDir\otelcontribcol.exe" -Force
+            $script:OtelExecutablePath = $TargetPath
+            Write-Host "OtelExecutablePath updated to: $OtelExecutablePath"
             $success = $true
         } catch {
             $retryCount++
@@ -541,6 +543,8 @@ function Install-AsScheduledTask {
     # Create a wrapper script that will run the edge binary and redirect all output to stdout log file
     $WrapperScript = @"
 @echo off
+set OTEL_LOG_FILE_PATH=$EdgeCollectorLogFile
+set OTEL_EXECUTABLE_PATH=$OtelExecutablePath
 set AGENT_ID=$MachineGuid
 echo Starting Observo Edge Agent at %DATE% %TIME% > "$StdoutLogFile"
     "$EdgeExe" -config "$ConfigFile" >> "$StdoutLogFile" 2>&1
