@@ -264,7 +264,7 @@ function Move-BinariesToInstallDir {
         try {
             Copy-Item -Path $OtelBinaryFile -Destination $TargetPath -Force
             $script:OtelExecutablePath = $TargetPath
-            Write-Host "DefaultTargetPath updated to: $DefaultTargetPath"
+            Write-Host "OtelExecutablePath updated to: $OtelExecutablePath"
             $success = $true
         } catch {
             $retryCount++
