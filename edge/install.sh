@@ -103,7 +103,6 @@ parse_environment_variable() {
         echo "Decoded install_id (JSON): $DECODED"
 
         export TOKEN # Make TOKEN available to other functions. Crucial!
-        return 0 # Success
     else
         echo "Error: install_id not found in argument"
         return 1 # Failure
