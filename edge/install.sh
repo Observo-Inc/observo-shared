@@ -178,6 +178,25 @@ decode_and_extract_config() {
     echo "FLEET_ID: $FLEET_ID"
     echo "PLATFORM: $PLATFORM"
     echo "EDGE_MANAGER_URL: $EDGE_MANAGER_URL"
+
+    # Generate AGENT_ID from machine ID
+    echo "Generating AGENT_ID from machine ID..."
+    MachineId=$(cat /etc/machine-id 2>/dev/null || cat /var/lib/dbus/machine-id 2>/dev/null)
+
+    if [ -z "$MachineId" ]; then
+        echo "Error: Could not read machine ID"
+        exit 1
+    fi
+
+    # Convert machine-id to UUID format
+    # machine-id is 32 hex chars, UUID needs hyphens: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    AGENT_ID="${MachineId:0:8}-${MachineId:8:4}-${MachineId:12:4}-${MachineId:16:4}-${MachineId:20:12}"
+
+    echo "Machine ID: $MachineId"
+    echo "AGENT_ID (UUID): $AGENT_ID"
+
+    # Export AGENT_ID for use in other functions
+    export AGENT_ID
 }
 
 
