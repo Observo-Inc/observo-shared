@@ -36,6 +36,7 @@ $ConfigDir = "C:\Program Files\Observo"
 $ZipFile = "$TmpDir\edge.zip"
 $ExtractDir = "$ConfigDir\binaries_edge"
 $ConfigFile = "$ConfigDir\edge-config.json"
+$CAFile = "$ConfigDir\ca.crt"
 $BaseUrl = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download"
 $PackageName = "otelcol-contrib"
 $DefaultDownloadUrl = "https://example.com"
@@ -587,6 +588,7 @@ function Install-AsScheduledTask {
 set OTEL_LOG_FILE_PATH=$EdgeCollectorLogFile
 set OTEL_EXECUTABLE_PATH=$OtelExecutablePath
 set AGENT_ID=$MachineGuid
+set GATEWAY_CA_PATH=$CAFile
 echo Starting Observo Edge Agent at %DATE% %TIME% > "$StdoutLogFile"
     "$EdgeExe" -config "$ConfigFile" >> "$StdoutLogFile" 2>&1
 "@
