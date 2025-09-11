@@ -36,7 +36,7 @@ $ConfigDir = "C:\Program Files\Observo"
 $ZipFile = "$TmpDir\edge.zip"
 $ExtractDir = "$ConfigDir\binaries_edge"
 $ConfigFile = "$ConfigDir\edge-config.json"
-$CAFile = "$ConfigDir\ca.crt"
+$CAFile = "$ConfigDir\certs\ca.crt"
 $BaseUrl = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download"
 $PackageName = "otelcol-contrib"
 $DefaultDownloadUrl = "https://example.com"
@@ -208,7 +208,7 @@ function Setup-CaCertificate {
     Write-Host "Setting up CA certificate..."
 
     # Create certificate directory if it doesn't exist
-    $CertDir = "C:\Program Files\Observo\certs"
+    $CertDir = Split-Path -Path $CAFile -Parent
     if (-not (Test-Path -Path $CertDir)) {
         Write-Host "Creating certificate directory: $CertDir"
         New-Item -ItemType Directory -Path $CertDir -Force | Out-Null
@@ -216,14 +216,13 @@ function Setup-CaCertificate {
 
     try {
         # Decode the base64 certificate and save it
-        Write-Host "Decoding and saving CA certificate to $CertDir\ca.crt"
+        Write-Host "Decoding and saving CA certificate to $CAFile"
         $bytes = [Convert]::FromBase64String($CaCert)
         $certContent = [System.Text.Encoding]::UTF8.GetString($bytes)
         
-        $CertFile = Join-Path -Path $CertDir -ChildPath "ca.crt"
-        [System.IO.File]::WriteAllText($CertFile, $certContent, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllText($CAFile, $certContent, [System.Text.Encoding]::UTF8)
         
-        Write-Host "CA certificate successfully saved to $CertFile"
+        Write-Host "CA certificate successfully saved to $CAFile"
     } catch {
         Write-Host "Error: Failed to decode and save CA certificate: $_" -ForegroundColor Red
         return
