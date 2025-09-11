@@ -119,6 +119,18 @@ parse_environment_variable() {
         return 1  # Failure
     fi
 
+    # Parse caCertificate parameter
+    if [[ "$env_var" =~ caCertificate=([A-Za-z0-9+/=]+) ]]; then
+        CA_CERT="${BASH_REMATCH[1]}"  # Extract the base64-encoded CA certificate
+        echo "Extracted caCertificate (base64): $CA_CERT"
+
+        export CA_CERT  # Make it available to other functions
+    else
+        echo "Warning: caCertificate not found in argument"
+        CA_CERT=""
+        export CA_CERT
+    fi
+
     return 0 # Success
 }
 
@@ -197,6 +209,35 @@ decode_and_extract_config() {
 
     # Export AGENT_ID for use in other functions
     export AGENT_ID
+}
+
+setup_ca_certificate() {
+    if [[ -z "$CA_CERT" ]]; then
+        echo "No CA certificate provided, skipping certificate setup"
+        return 0
+    fi
+
+    echo "Setting up CA certificate..."
+
+    # Create /etc/certs directory if it doesn't exist
+    if [[ ! -d "/etc/certs" ]]; then
+        echo "Creating /etc/certs directory..."
+        sudo mkdir -p /etc/certs
+        sudo chmod 755 /etc/certs
+    fi
+
+    # Decode the base64 certificate and save it
+    echo "Decoding and saving CA certificate to /etc/certs/ca.crt"
+    echo "$CA_CERT" | base64 --decode | sudo tee /etc/certs/ca.crt > /dev/null
+    
+    if [[ $? -eq 0 ]]; then
+        echo "CA certificate successfully saved to /etc/certs/ca.crt"
+        sudo chmod 644 /etc/certs/ca.crt
+        sudo chown root:root /etc/certs/ca.crt
+    else
+        echo "Error: Failed to decode and save CA certificate"
+        return 1
+    fi
 }
 
 
@@ -393,16 +434,19 @@ detect_system
 #   store  the config at $CONFIG_FILE location
 decode_and_extract_config
 
-#7. construct the download url required for the system and download the tar
+#7. setup CA certificate if provided
+setup_ca_certificate
+
+#8. construct the download url required for the system and download the tar
 #   extract binary at $TMP_DIR
 download_and_extract_agent
 
-#8. move the binary to $INSTALL_DIR and give execution permissions
+#9. move the binary to $INSTALL_DIR and give execution permissions
 move_to_bin_and_make_executable
 
-#9. Start server
+#10. Start server
 start_server
 
-#10 create systemd service
+#11. create systemd service
 create_systemd_service
 

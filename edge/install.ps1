@@ -115,6 +115,15 @@ function Parse-EnvironmentVariable {
         return $false
     }
 
+    # Parse caCertificate parameter
+    if ($EnvVar -match "caCertificate=([A-Za-z0-9+/=]+)") {
+        $script:CaCert = $matches[1]
+        Write-Host "Extracted caCertificate (base64): $CaCert"
+    } else {
+        Write-Host "Warning: caCertificate not found in argument"
+        $script:CaCert = ""
+    }
+
     return $true
 }
 
@@ -185,6 +194,38 @@ function Decode-AndExtractConfig {
     } catch {
         Write-Host "Error parsing JSON configuration: $_" -ForegroundColor Red
         exit 1
+    }
+}
+
+# Function to setup CA certificate
+function Setup-CaCertificate {
+    if ([string]::IsNullOrEmpty($CaCert)) {
+        Write-Host "No CA certificate provided, skipping certificate setup"
+        return
+    }
+
+    Write-Host "Setting up CA certificate..."
+
+    # Create certificate directory if it doesn't exist
+    $CertDir = "C:\Program Files\Observo\certs"
+    if (-not (Test-Path -Path $CertDir)) {
+        Write-Host "Creating certificate directory: $CertDir"
+        New-Item -ItemType Directory -Path $CertDir -Force | Out-Null
+    }
+
+    try {
+        # Decode the base64 certificate and save it
+        Write-Host "Decoding and saving CA certificate to $CertDir\ca.crt"
+        $bytes = [Convert]::FromBase64String($CaCert)
+        $certContent = [System.Text.Encoding]::UTF8.GetString($bytes)
+        
+        $CertFile = Join-Path -Path $CertDir -ChildPath "ca.crt"
+        [System.IO.File]::WriteAllText($CertFile, $certContent, [System.Text.Encoding]::UTF8)
+        
+        Write-Host "CA certificate successfully saved to $CertFile"
+    } catch {
+        Write-Host "Error: Failed to decode and save CA certificate: $_" -ForegroundColor Red
+        return
     }
 }
 
@@ -642,6 +683,9 @@ Detect-System
 
 # Decode and extract configuration
 Decode-AndExtractConfig
+
+# Setup CA certificate if provided
+Setup-CaCertificate
 
 # Download and extract the agent
 Download-AndExtractAgent
