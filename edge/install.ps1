@@ -36,6 +36,7 @@ $ConfigDir = "C:\Program Files\Observo"
 $ZipFile = "$TmpDir\edge.zip"
 $ExtractDir = "$ConfigDir\binaries_edge"
 $ConfigFile = "$ConfigDir\edge-config.json"
+$CAFile = "$ConfigDir\certs\ca.crt"
 $BaseUrl = "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download"
 $PackageName = "otelcol-contrib"
 $DefaultDownloadUrl = "https://example.com"
@@ -115,6 +116,15 @@ function Parse-EnvironmentVariable {
         return $false
     }
 
+    # Parse caCertificate parameter
+    if ($EnvVar -match "caCertificate=([A-Za-z0-9+/=]+)") {
+        $script:CaCert = $matches[1]
+        Write-Host "Extracted caCertificate (base64): $CaCert"
+    } else {
+        Write-Host "Warning: caCertificate not found in argument"
+        $script:CaCert = ""
+    }
+
     return $true
 }
 
@@ -185,6 +195,37 @@ function Decode-AndExtractConfig {
     } catch {
         Write-Host "Error parsing JSON configuration: $_" -ForegroundColor Red
         exit 1
+    }
+}
+
+# Function to setup CA certificate
+function Setup-CaCertificate {
+    if ([string]::IsNullOrEmpty($CaCert)) {
+        Write-Host "No CA certificate provided, skipping certificate setup"
+        return
+    }
+
+    Write-Host "Setting up CA certificate..."
+
+    # Create certificate directory if it doesn't exist
+    $CertDir = Split-Path -Path $CAFile -Parent
+    if (-not (Test-Path -Path $CertDir)) {
+        Write-Host "Creating certificate directory: $CertDir"
+        New-Item -ItemType Directory -Path $CertDir -Force | Out-Null
+    }
+
+    try {
+        # Decode the base64 certificate and save it
+        Write-Host "Decoding and saving CA certificate to $CAFile"
+        $bytes = [Convert]::FromBase64String($CaCert)
+        $certContent = [System.Text.Encoding]::UTF8.GetString($bytes)
+        
+        [System.IO.File]::WriteAllText($CAFile, $certContent, [System.Text.Encoding]::UTF8)
+        
+        Write-Host "CA certificate successfully saved to $CAFile"
+    } catch {
+        Write-Host "Error: Failed to decode and save CA certificate: $_" -ForegroundColor Red
+        return
     }
 }
 
@@ -546,6 +587,7 @@ function Install-AsScheduledTask {
 set OTEL_LOG_FILE_PATH=$EdgeCollectorLogFile
 set OTEL_EXECUTABLE_PATH=$OtelExecutablePath
 set AGENT_ID=$MachineGuid
+set GATEWAY_CA_PATH=$CAFile
 echo Starting Observo Edge Agent at %DATE% %TIME% > "$StdoutLogFile"
     "$EdgeExe" -config "$ConfigFile" >> "$StdoutLogFile" 2>&1
 "@
@@ -642,6 +684,9 @@ Detect-System
 
 # Decode and extract configuration
 Decode-AndExtractConfig
+
+# Setup CA certificate if provided
+Setup-CaCertificate
 
 # Download and extract the agent
 Download-AndExtractAgent
