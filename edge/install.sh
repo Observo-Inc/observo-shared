@@ -328,13 +328,13 @@ setup_log_directory() {
 
     if [ ! -d "$LOG_DIR" ]; then
         echo "Creating log directory..."
-        mkdir -p "$LOG_DIR" || { echo "Failed to create log directory"; exit 1; }
+        sudo mkdir -p "$LOG_DIR" || { echo "Failed to create log directory"; exit 1; }
     else
         echo "Log directory already exists."
     fi
 
     echo "Setting ownership to $USER:$USER"
-    chown "$USER:$USER" "$LOG_DIR" || { echo "Failed to set ownership on log directory"; exit 1; }
+    sudo chown "$USER:$USER" "$LOG_DIR" || { echo "Failed to set ownership on log directory"; exit 1; }
 }
 
 create_systemd_service() {
@@ -376,6 +376,7 @@ Environment="CONFIG_VERSION_ID=$CONFIG_VERSION_ID"
 Environment="FLEET_ID=$FLEET_ID"
 Environment="PLATFORM=$PLATFORM"
 Environment="EDGE_MANAGER_URL=$EDGE_MANAGER_URL"
+Environment="OTEL_LOG_FILE_PATH=$LOG_DIR/otel-collector.log"
 
 
 
