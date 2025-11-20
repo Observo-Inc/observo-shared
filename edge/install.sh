@@ -97,7 +97,7 @@ parse_environment_variable() {
     if [[ "$env_var" =~ install_id=([A-Za-z0-9+/=]+) ]]; then
         TOKEN="${BASH_REMATCH[1]}"  # Extract the base64-encoded token value
         echo "Extracted install_id (base64): $TOKEN"
-        
+
         # Decode the base64 string
         DECODED=$(echo "$TOKEN" | base64 --decode)
         echo "Decoded install_id (JSON): $DECODED"
@@ -214,6 +214,7 @@ download_and_extract_agent() {
     mkdir -p "$TMP_DIR"
     curl -L "$DOWNLOAD_URL" -o "$TAR_FILE"
 
+
     echo "Download completed and saved to $TAR_FILE"
 
     mkdir -p "$EXTRACT_DIR"
@@ -252,10 +253,19 @@ move_to_bin_and_make_executable() {
     BIN_NAME=$(basename "$EDGE_BINARY_FILE")
     sudo chmod +x "$INSTALL_DIR/$BIN_NAME"
 
+    # Fix ownership of the entire install directory after moving files
+    echo "Setting ownership of $INSTALL_DIR to $USER:$USER"
+    sudo chown -R "$USER:$USER" "$INSTALL_DIR"
+
+    # Ensure proper permissions for the directory and config file
+    sudo chmod 755 "$INSTALL_DIR"
+    if [[ -f "$CONFIG_FILE" ]]; then
+        sudo chmod 644 "$CONFIG_FILE"
+    fi
+
     echo "deleting $EXTRACT_DIR"
     rm -rf $EXTRACT_DIR
     rm -rf $TMP_DIR
-
 }
 
 start_server() {
@@ -356,6 +366,19 @@ Restart=always
 RestartSec=5
 User=$USER
 Group=$USER
+WorkingDirectory=$INSTALL_DIR
+
+Environment="AGENT_ID=$AGENT_ID"
+Environment="SITE_ID=$SITE_ID"
+Environment="AUTH_TOKEN=$AUTH_TOKEN"
+Environment="AGENT_VERSION=$AGENT_VERSION"
+Environment="CONFIG_VERSION_ID=$CONFIG_VERSION_ID"
+Environment="FLEET_ID=$FLEET_ID"
+Environment="PLATFORM=$PLATFORM"
+Environment="EDGE_MANAGER_URL=$EDGE_MANAGER_URL"
+
+
+
 
 StandardOutput=append:$LOG_DIR/observo-agent.log
 StandardError=append:$LOG_DIR/observo-agent.log
@@ -400,9 +423,5 @@ download_and_extract_agent
 #8. move the binary to $INSTALL_DIR and give execution permissions
 move_to_bin_and_make_executable
 
-#9. Start server
-start_server
-
-#10 create systemd service
+#9 create systemd service
 create_systemd_service
-
