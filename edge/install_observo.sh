@@ -234,10 +234,9 @@ move_to_bin_and_make_executable() {
     echo "Moving $OTEL_BINARY_FILE to $INSTALL_DIR..."
     sudo mv "$OTEL_BINARY_FILE" "$INSTALL_DIR/" || { echo "Move failed!"; exit 1; }
 
-    # Ensure the binary is executable and set ownership
+    # Ensure the binary is executable
     BIN_NAME=$(basename "$OTEL_BINARY_FILE")
     sudo chmod +x "$INSTALL_DIR/$BIN_NAME"
-    sudo chown "$USER:$USER" "$INSTALL_DIR/$BIN_NAME"
 
     EDGE_BINARY_FILE=$(find "$EXTRACT_DIR" -type f -executable -name "edge*" | head -n 1)
 
@@ -249,17 +248,14 @@ move_to_bin_and_make_executable() {
     echo "Moving $EDGE_BINARY_FILE to $INSTALL_DIR..."
     sudo mv "$EDGE_BINARY_FILE" "$INSTALL_DIR/" || { echo "Move failed!"; exit 1; }
 
-    # Ensure the binary is executable and set ownership
+    # Ensure the binary is executable
     BIN_NAME=$(basename "$EDGE_BINARY_FILE")
     sudo chmod +x "$INSTALL_DIR/$BIN_NAME"
-    sudo chown "$USER:$USER" "$INSTALL_DIR/$BIN_NAME"
-
-    # Set ownership of the entire install directory
-    sudo chown -R "$USER:$USER" "$INSTALL_DIR"
 
     echo "deleting $EXTRACT_DIR"
     rm -rf $EXTRACT_DIR
     rm -rf $TMP_DIR
+
 }
 
 start_server() {
@@ -405,7 +401,7 @@ download_and_extract_agent
 move_to_bin_and_make_executable
 
 #9. Start server
-start_server
+#start_server
 
 #10 create systemd service
 create_systemd_service
