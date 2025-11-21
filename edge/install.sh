@@ -61,8 +61,6 @@ dependencies_check() {
         exit 1
     fi
 
-    $PKG_MANAGER $cmd || { echo "Failed to install $cmd"; exit 1; }
-
     # Check for missing dependencies
     for cmd in $PREREQS; do
         if ! command -v $cmd &>/dev/null; then
