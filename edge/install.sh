@@ -209,13 +209,14 @@ download_and_extract_agent() {
     # DOWNLOAD_URL="${BASE_URL}/v${VERSION}/${PACKAGE}"
     echo "Downloading from $DOWNLOAD_URL"
 
-    # if ! curl --head -s -L "$DOWNLOAD_URL" | grep -q "HTTP/2 200"; then
-    #     echo "File does not exist. Something has gone wrong"
-    #     exit 1
-    # fi
-    mkdir -p "$TMP_DIR"
-    curl -L "$DOWNLOAD_URL" -o "$TAR_FILE"
+    # Check if the URL is accessible (presigned URL might be expired)
+    if ! curl -s -L -I "$DOWNLOAD_URL" | grep -q "^HTTP/[12] 2"; then
+        echo "Error: Download URL is not accessible. URL may have expired."
+        exit 1
+    fi
 
+    mkdir -p "$TMP_DIR"
+    curl -L "$DOWNLOAD_URL" -o "$TAR_FILE" || { echo "Download failed!"; exit 1; }
 
     echo "Download completed and saved to $TAR_FILE"
 
