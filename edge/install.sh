@@ -210,7 +210,7 @@ download_and_extract_agent() {
     echo "Downloading from $DOWNLOAD_URL"
 
     # Check if the URL is accessible (presigned URL might be expired)
-    if ! curl -s -L -I "$DOWNLOAD_URL" | grep -q "^HTTP/[12] 2"; then
+    if ! curl -s -L -i "$DOWNLOAD_URL" | grep -q "^HTTP/[12] 2"; then
         echo "Error: Download URL is not accessible. URL may have expired."
         exit 1
     fi
