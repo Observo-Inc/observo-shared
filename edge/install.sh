@@ -210,10 +210,10 @@ download_and_extract_agent() {
     echo "Downloading from $DOWNLOAD_URL"
 
     # Check if the URL is accessible (presigned URL might be expired)
-    if ! curl -s -L -i "$DOWNLOAD_URL" | grep -q "^HTTP/[12] 2"; then
-        echo "Error: Download URL is not accessible. URL may have expired."
-        exit 1
-    fi
+    #if ! curl -s -L -I "$DOWNLOAD_URL" | grep -q "^HTTP/[12] 2"; then
+    #    echo "Error: Download URL is not accessible. URL may have expired."
+    #    exit 1
+    #fi
 
     mkdir -p "$TMP_DIR"
     curl -L "$DOWNLOAD_URL" -o "$TAR_FILE" || { echo "Download failed!"; exit 1; }
