@@ -216,8 +216,12 @@ download_and_extract_agent() {
     #fi
 
     mkdir -p "$TMP_DIR"
-    curl -L "$DOWNLOAD_URL" -o "$TAR_FILE" || { echo "Download failed!"; exit 1; }
+    curl -L -O -# "$DOWNLOAD_URL" -o "$TAR_FILE" || { echo "Download failed!"; exit 1; }
 
+    if [[ ! -f "$TAR_FILE" ]]; then
+        echo "Error: Downloaded file not found at $TAR_FILE. URL may have expired."
+        exit 1
+    fi
     echo "Download completed and saved to $TAR_FILE"
 
     mkdir -p "$EXTRACT_DIR"
