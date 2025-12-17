@@ -217,14 +217,26 @@ download_and_extract_agent() {
 
     mkdir -p "$TMP_DIR"
     curl -L -# "$DOWNLOAD_URL" -o "$TAR_FILE"
-    ls -l "$TAR_FILE"
 
     if [[ ! -f "$TAR_FILE" ]]; then
         echo "Error: Downloaded file not found at $TAR_FILE. URL may have expired or download failed."
         exit 1
     fi
-    ls -l "$TAR_FILE"
-    echo "Download completed and saved to $TAR_FILE"
+    
+    # if the url is expired then it make smaller file size. Check if file size is suspiciously small (likely an error response)
+    FILE_SIZE=$(stat -f%z "$TAR_FILE" 2>/dev/null || stat -c%s "$TAR_FILE" 2>/dev/null || echo "0")
+    MIN_EXPECTED_SIZE=10240  # 10KB minimum for a valid tar.gz archive
+    
+    if [[ $FILE_SIZE -lt $MIN_EXPECTED_SIZE ]]; then
+        echo "Error: Downloaded file is too small ($FILE_SIZE bytes). Expected at least $MIN_EXPECTED_SIZE bytes."
+        echo "This usually means the download URL has expired or returned an error response."
+        echo "File contents (first 200 chars):"
+        head -c 200 "$TAR_FILE" 2>/dev/null || cat "$TAR_FILE" | head -c 200
+        echo ""
+        exit 1
+    fi
+    
+    echo "Download completed and saved to $TAR_FILE (size: $FILE_SIZE bytes)"
 
     mkdir -p "$EXTRACT_DIR"
     echo "Extracting $TAR_FILE to $EXTRACT_DIR"
