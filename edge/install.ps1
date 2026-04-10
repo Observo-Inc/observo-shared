@@ -45,6 +45,10 @@ $StdoutLogFile = "$LogDir\observoedge_stdout.log"
 $StderrLogFile = "$LogDir\observoedge_stderr.log"
 $EdgeCollectorLogFile = "$LogDir\edge-collector.log"
 $OtelExecutablePath = "$InstallDir\otelcontribcol.exe"
+
+# Optional: path to local binaries (set by Parse-EnvironmentVariable if provided)
+$script:LocalBinariesPath = $null
+
 # Function to check for and install prerequisites
 function Check-Prerequisites {
     Write-Host "Checking for required PowerShell modules..."
@@ -73,6 +77,13 @@ function Check-Prerequisites {
 }
 
 # Function to parse command line arguments
+# Supported keys in EnvVar string:
+#   install_id=<base64 JWT>      (required)
+#   download_url=<url>           (optional; used when downloading binaries from a URL)
+#   binaries_path=<local path>   (optional; skips download and uses local binaries instead)
+#
+# Note: download_url and binaries_path are mutually exclusive.
+#       If both are provided, binaries_path takes precedence.
 function Parse-EnvironmentVariable {
     param (
         [Parameter(Mandatory=$false)]
@@ -82,6 +93,7 @@ function Parse-EnvironmentVariable {
     if (-not $EnvVar) {
         Write-Host "Error: Missing -EnvVar argument"
         Write-Host "Usage: .\install-observo.ps1 -EnvVar 'install_id=<JWT Token> download_url=<Custom URL>'"
+        Write-Host "       .\install-observo.ps1 -EnvVar 'install_id=<JWT Token> binaries_path=<Local Path>'"
         return $false
     }
 
@@ -106,13 +118,33 @@ function Parse-EnvironmentVariable {
         return $false
     }
 
-    # Parse download_url (optional) and update DefaultDownloadUrl directly
+    # Parse binaries_path (optional) — quoted paths with spaces are supported
+    # Matches either a quoted path: binaries_path="C:\some path\here"
+    # or an unquoted path:          binaries_path=C:\somepath
+    if ($EnvVar -match 'binaries_path="([^"]+)"' -or $EnvVar -match 'binaries_path=([^\s]+)') {
+        $script:LocalBinariesPath = $matches[1]
+        Write-Host "Local binaries path provided: $LocalBinariesPath"
+
+        if (-not (Test-Path -Path $LocalBinariesPath)) {
+            Write-Host "Error: binaries_path '$LocalBinariesPath' does not exist." -ForegroundColor Red
+            return $false
+        }
+
+        # Warn if download_url was also supplied (binaries_path wins)
+        if ($EnvVar -match "download_url=([^\s]+)") {
+            Write-Host "Warning: Both binaries_path and download_url were provided. binaries_path takes precedence; download_url will be ignored." -ForegroundColor Yellow
+        }
+
+        return $true
+    }
+
+    # Parse download_url (optional) — only reached if binaries_path was not set
     if ($EnvVar -match "download_url=([^\s]+)") {
         $script:DefaultDownloadUrl = $matches[1]
         Write-Host "Updated DefaultDownloadUrl to: $DefaultDownloadUrl"
     } else {
-        Write-Host "No DownloadUrl provided: $DefaultDownloadUrl"
-        return $false
+        Write-Host "No download_url or binaries_path provided. Using default download URL: $DefaultDownloadUrl"
+        # Not returning $false here — the default URL defined at the top will be used.
     }
 
     return $true
@@ -188,7 +220,7 @@ function Decode-AndExtractConfig {
     }
 }
 
-# Function to download and extract the agent
+# Function to download and extract the agent from a URL
 function Download-AndExtractAgent {
     param (
         [string]$DownloadUrl = $DefaultDownloadUrl
@@ -220,6 +252,43 @@ function Download-AndExtractAgent {
         Write-Host "Error during download or extraction: $_"
         exit 1
     }
+}
+
+# Function to copy binaries from a local path instead of downloading
+# Expects the directory to contain otelcontrib*.exe and edge*.exe, matching
+# the same layout that Download-AndExtractAgent produces after extraction.
+function Copy-LocalBinaries {
+    param (
+        [string]$SourcePath = $script:LocalBinariesPath
+    )
+
+    Write-Host "Using local binaries from: $SourcePath"
+
+    # Validate expected executables are present before touching ExtractDir
+    $otelBin = Get-ChildItem -Path $SourcePath -Recurse -Filter "otelcontrib*.exe" | Select-Object -First 1
+    $edgeBin = Get-ChildItem -Path $SourcePath -Recurse -Filter "edge*.exe"        | Select-Object -First 1
+
+    if (-not $otelBin) {
+        Write-Host "Error: No otelcontrib*.exe found under '$SourcePath'." -ForegroundColor Red
+        exit 1
+    }
+    if (-not $edgeBin) {
+        Write-Host "Error: No edge*.exe found under '$SourcePath'." -ForegroundColor Red
+        exit 1
+    }
+
+    Write-Host "Found otelcontrib binary : $($otelBin.FullName)"
+    Write-Host "Found edge binary        : $($edgeBin.FullName)"
+
+    # Mirror into ExtractDir so Move-BinariesToInstallDir works unchanged
+    if (-not (Test-Path -Path $ExtractDir)) {
+        New-Item -ItemType Directory -Path $ExtractDir -Force | Out-Null
+    }
+
+    Copy-Item -Path $otelBin.FullName -Destination $ExtractDir -Force
+    Copy-Item -Path $edgeBin.FullName -Destination $ExtractDir -Force
+
+    Write-Host "Local binaries staged in $ExtractDir"
 }
 
 function Move-BinariesToInstallDir {
@@ -339,207 +408,6 @@ function Install-AsScheduledTask {
     $MachineGuid = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid).MachineGuid
     Write-Host "MachineGuid: $MachineGuid"
 
-    # Create a wrapper script that will run the edge binary and redirect output to log files
-    $WrapperScript = @"
-@echo off
-set AGENT_ID=$MachineGuid
-echo Starting Observo Edge Agent at %DATE% %TIME% > "$StdoutLogFile"
-echo Starting Observo Edge Agent at %DATE% %TIME% > "$StderrLogFile"
-    "$EdgeExe" -config "$ConfigFile" >> "$StdoutLogFile" 2>> "$StderrLogFile"
-"@
-
-    $WrapperPath = "$InstallDir\run_observo.cmd"
-    Set-Content -Path $WrapperPath -Value $WrapperScript
-    Write-Host "Created wrapper script: $WrapperPath"
-
-    # Create the action to run the wrapper script
-    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$WrapperPath`""
-
-    # Create the trigger (at system startup)
-    $trigger = New-ScheduledTaskTrigger -AtStartup
-
-    # Configure the settings
-    $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 0) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-
-    # Create the principal (run as SYSTEM with highest privileges)
-    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
-    # Register the task
-    Register-ScheduledTask -TaskName $ServiceName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description "Observo Edge telemetry collection agent"
-
-    # Start the task immediately
-    Write-Host "Starting scheduled task: $ServiceName"
-    Start-ScheduledTask -TaskName $ServiceName
-
-    # Check if the task started and the process is running
-    Start-Sleep -Seconds 5
-    $processes = Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($EdgeExe)) -ErrorAction SilentlyContinue
-
-    if ($processes.Count -gt 0) {
-        Write-Host "Observo Edge started successfully as a scheduled task." -ForegroundColor Green
-        Write-Host "Process ID(s): $($processes.Id -join ', ')"
-        Write-Host "You can view logs using View-ObservoLogs command."
-    } else {
-        Write-Host "Warning: The scheduled task was created but the process may not have started." -ForegroundColor Yellow
-
-        # Try to start manually for debugging
-        Write-Host "Attempting to start the binary directly for debugging..."
-        $processInfo = Start-Process -FilePath $EdgeExe -ArgumentList "-config `"$ConfigFile`"" -PassThru -NoNewWindow -RedirectStandardOutput $StdoutLogFile -RedirectStandardError $StderrLogFile
-        Write-Host "Manual process started with PID: $($processInfo.Id)"
-
-        # Give it a few seconds to initialize
-        Start-Sleep -Seconds 10
-
-        if ($processInfo.HasExited) {
-            Write-Host "Process exited with code: $($processInfo.ExitCode)" -ForegroundColor Red
-            Write-Host "Check logs for details using View-ObservoLogs command."
-        } else {
-            Write-Host "Process is running. Check logs using View-ObservoLogs command."
-        }
-    }
-
-    # Show the scheduled task status
-    Get-ScheduledTask -TaskName $ServiceName | Format-List State, LastRunTime, LastTaskResult
-}
-
-function Install-AsScheduledTask {
-    Write-Host "Installing Observo Edge as a scheduled task..."
-
-    # Check if service already exists and remove it
-    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
-        Write-Host "Service exists. Stopping and removing..."
-        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        sc.exe delete $ServiceName
-        Start-Sleep -Seconds 2
-    }
-
-    # Check if task already exists and remove it
-    $taskExists = Get-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
-    if ($taskExists) {
-        Write-Host "Scheduled task exists. Removing..."
-        Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false
-    }
-
-    # Verify the binary and config file exist
-    Write-Host "Verifying binary and config file exist:"
-    $binaryExists = Test-Path -Path $EdgeExe
-    $configExists = Test-Path -Path $ConfigFile
-    Write-Host "Binary: $binaryExists"
-    Write-Host "Config: $configExists"
-
-    if (-not $binaryExists -or -not $configExists) {
-        Write-Host "Error: Binary or config file missing!" -ForegroundColor Red
-        exit 1
-    }
-
-    # Create log directory if it doesn't exist
-    if (-not (Test-Path -Path $LogDir)) {
-        New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
-        Write-Host "Created log directory: $LogDir"
-    }
-
-    # Create a wrapper script that will run the edge binary and redirect output to log files
-    $WrapperScript = @"
-@echo off
-echo Starting Observo Edge Agent at %DATE% %TIME% > "$StdoutLogFile"
-echo Starting Observo Edge Agent at %DATE% %TIME% > "$StderrLogFile"
-    "$EdgeExe" -config "$ConfigFile" >> "$StdoutLogFile" 2>> "$StderrLogFile"
-"@
-
-    $WrapperPath = "$InstallDir\run_observo.cmd"
-    Set-Content -Path $WrapperPath -Value $WrapperScript
-    Write-Host "Created wrapper script: $WrapperPath"
-
-    # Create the action to run the wrapper script
-    $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$WrapperPath`""
-
-    # Create the trigger (at system startup)
-    $trigger = New-ScheduledTaskTrigger -AtStartup
-
-    # Configure the settings
-    $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 0) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-
-    # Create the principal (run as SYSTEM with highest privileges)
-    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-
-    # Register the task
-    Register-ScheduledTask -TaskName $ServiceName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Description "Observo Edge telemetry collection agent"
-
-    # Start the task immediately
-    Write-Host "Starting scheduled task: $ServiceName"
-    Start-ScheduledTask -TaskName $ServiceName
-
-    # Check if the task started and the process is running
-    Start-Sleep -Seconds 5
-    $processes = Get-Process -Name ([System.IO.Path]::GetFileNameWithoutExtension($EdgeExe)) -ErrorAction SilentlyContinue
-
-    if ($processes.Count -gt 0) {
-        Write-Host "Observo Edge started successfully as a scheduled task." -ForegroundColor Green
-        Write-Host "Process ID(s): $($processes.Id -join ', ')"
-        Write-Host "You can view logs using View-ObservoLogs command."
-    } else {
-        Write-Host "Warning: The scheduled task was created but the process may not have started." -ForegroundColor Yellow
-
-        # Try to start manually for debugging
-        Write-Host "Attempting to start the binary directly for debugging..."
-        $processInfo = Start-Process -FilePath $EdgeExe -ArgumentList "-config `"$ConfigFile`"" -PassThru -NoNewWindow -RedirectStandardOutput $StdoutLogFile -RedirectStandardError $StderrLogFile
-        Write-Host "Manual process started with PID: $($processInfo.Id)"
-
-        # Give it a few seconds to initialize
-        Start-Sleep -Seconds 10
-
-        if ($processInfo.HasExited) {
-            Write-Host "Process exited with code: $($processInfo.ExitCode)" -ForegroundColor Red
-            Write-Host "Check logs for details using View-ObservoLogs command."
-        } else {
-            Write-Host "Process is running. Check logs using View-ObservoLogs command."
-        }
-    }
-
-    # Show the scheduled task status
-    Get-ScheduledTask -TaskName $ServiceName | Format-List State, LastRunTime, LastTaskResult
-}
-
-function Install-AsScheduledTask {
-    Write-Host "Installing Observo Edge as a scheduled task..."
-
-    # Check if service already exists and remove it
-    if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
-        Write-Host "Service exists. Stopping and removing..."
-        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        sc.exe delete $ServiceName
-        Start-Sleep -Seconds 2
-    }
-
-    # Check if task already exists and remove it
-    $taskExists = Get-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
-    if ($taskExists) {
-        Write-Host "Scheduled task exists. Removing..."
-        Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false
-    }
-
-    # Verify the binary and config file exist
-    Write-Host "Verifying binary and config file exist:"
-    $binaryExists = Test-Path -Path $EdgeExe
-    $configExists = Test-Path -Path $ConfigFile
-    Write-Host "Binary: $binaryExists"
-    Write-Host "Config: $configExists"
-
-    if (-not $binaryExists -or -not $configExists) {
-        Write-Host "Error: Binary or config file missing!" -ForegroundColor Red
-        exit 1
-    }
-
-    # Create log directory if it doesn't exist
-    if (-not (Test-Path -Path $LogDir)) {
-        New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
-        Write-Host "Created log directory: $LogDir"
-    }
-    $MachineGuid = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid).MachineGuid
-    Write-Host "MachineGuid: $MachineGuid"
-
     # Create a wrapper script that will run the edge binary and redirect all output to stdout log file
     $WrapperScript = @"
 @echo off
@@ -595,7 +463,9 @@ Write-Host $ObservoHeading
 $installId = $args[1]
 if (-not (Parse-EnvironmentVariable -EnvVar $installId)) {
     Write-Host "Usage: .\install-observo.ps1 -EnvVar 'install_id=<JWT Token> download_url=<Custom URL>'"
-    Write-Host "Note: download_url is optional. If not provided, the default URL will be used."
+    Write-Host "       .\install-observo.ps1 -EnvVar 'install_id=<JWT Token> binaries_path=<Local Path>'"
+    Write-Host "Note: download_url and binaries_path are optional and mutually exclusive."
+    Write-Host "      If binaries_path is provided, the download step is skipped entirely."
     exit 1
 }
 
@@ -643,8 +513,13 @@ Detect-System
 # Decode and extract configuration
 Decode-AndExtractConfig
 
-# Download and extract the agent
-Download-AndExtractAgent
+# Obtain binaries — either from a local path or by downloading
+if ($script:LocalBinariesPath) {
+    Write-Host "Skipping download: using local binaries from '$script:LocalBinariesPath'"
+    Copy-LocalBinaries
+} else {
+    Download-AndExtractAgent
+}
 
 # Move binaries to installation directory
 Move-BinariesToInstallDir
