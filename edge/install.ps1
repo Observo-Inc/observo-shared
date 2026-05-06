@@ -110,6 +110,19 @@ function Parse-EnvironmentVariable {
     if ($EnvVar -match "download_url=([^\s]+)") {
         $script:DefaultDownloadUrl = $matches[1]
         Write-Host "Updated DefaultDownloadUrl to: $DefaultDownloadUrl"
+
+        # Reject non-HTTPS schemes
+        $uri = [Uri]$script:DefaultDownloadUrl
+        if ($uri.Scheme -ne 'https') {
+            Write-Host "Error: download_url must use HTTPS (got: $($uri.Scheme))"
+            return $false
+        }
+
+        # Validate hostname against allowlist — only S3 and the Observo CDN are permitted
+        if ($uri.Host -notmatch '^([a-z0-9-]+\.s3(\.[a-z0-9-]+)?\.amazonaws\.com|downloads\.observo\.ai)$') {
+            Write-Host "Error: download_url hostname '$($uri.Host)' is not in the allowed list"
+            return $false
+        }
     } else {
         Write-Host "No DownloadUrl provided: $DefaultDownloadUrl"
         return $false
@@ -174,6 +187,12 @@ function Decode-AndExtractConfig {
         $script:FleetId = $config.fleet_id
         $script:Platform = $config.platform
         $script:EdgeManagerUrl = $config.edge_manager_url
+        $script:BinarySha256 = $config.sha256
+
+        if (-not $script:BinarySha256) {
+            Write-Host "Error: install_id payload is missing required 'sha256' field. Cannot verify binary integrity." -ForegroundColor Red
+            exit 1
+        }
 
         Write-Host "SITE_ID: $SiteId"
         Write-Host "AUTH_TOKEN: $AuthToken"
@@ -206,6 +225,18 @@ function Download-AndExtractAgent {
         $webClient = New-Object System.Net.WebClient
         $webClient.DownloadFile($DownloadUrl, $ZipFile)
         Write-Host "Download completed and saved to $ZipFile"
+
+        # Verify SHA-256 integrity before extraction
+        Write-Host "Verifying SHA-256 integrity..."
+        $actualHash = (Get-FileHash -Path $ZipFile -Algorithm SHA256).Hash.ToLower()
+        if ($actualHash -ne $script:BinarySha256.ToLower()) {
+            Write-Host "Error: SHA-256 mismatch — binary integrity check failed." -ForegroundColor Red
+            Write-Host "  Expected: $($script:BinarySha256)"
+            Write-Host "  Got:      $actualHash"
+            Remove-Item -Path $ZipFile -Force -ErrorAction SilentlyContinue
+            exit 1
+        }
+        Write-Host "SHA-256 verified: $actualHash"
 
         # Create extract directory if it doesn't exist
         if (-not (Test-Path -Path $ExtractDir)) {

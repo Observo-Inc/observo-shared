@@ -111,6 +111,19 @@ parse_environment_variable() {
         DOWNLOAD_URL="${BASH_REMATCH[1]}"  # Extract the full presigned URL
         echo "Extracted download_url: $DOWNLOAD_URL"
 
+        # Reject non-HTTPS schemes
+        if [[ ! "$DOWNLOAD_URL" =~ ^https:// ]]; then
+            echo "Error: download_url must use HTTPS (got: ${DOWNLOAD_URL%%://*}://)"
+            return 1
+        fi
+
+        # Validate hostname against allowlist — only S3 and the Observo CDN are permitted
+        DOWNLOAD_HOST=$(echo "$DOWNLOAD_URL" | sed 's|^https://||' | cut -d'/' -f1 | cut -d'?' -f1)
+        if [[ ! "$DOWNLOAD_HOST" =~ ^([a-z0-9-]+\.s3(\.[a-z0-9-]+)?\.amazonaws\.com|downloads\.observo\.ai)$ ]]; then
+            echo "Error: download_url hostname '${DOWNLOAD_HOST}' is not in the allowed list"
+            return 1
+        fi
+
         export DOWNLOAD_URL  # Make it available to other functions
     else
         echo "Error: download_url not found in argument"
@@ -168,6 +181,13 @@ decode_and_extract_config() {
     FLEET_ID=$(echo "$PAYLOAD" | jq -r '.fleet_id')
     PLATFORM=$(echo "$PAYLOAD" | jq -r '.platform')
     EDGE_MANAGER_URL=$(echo "$PAYLOAD" | jq -r '.edge_manager_url')
+    BINARY_SHA256=$(echo "$PAYLOAD" | jq -r '.sha256 // empty')
+
+    if [[ -z "$BINARY_SHA256" ]]; then
+        echo "Error: install_id payload is missing required 'sha256' field. Cannot verify binary integrity."
+        exit 1
+    fi
+    export BINARY_SHA256
 
     echo "SITE_ID: $SITE_ID"
     echo "AUTH_TOKEN: $AUTH_TOKEN"
@@ -238,9 +258,25 @@ download_and_extract_agent() {
     
     echo "Download completed and saved to $TAR_FILE (size: $FILE_SIZE bytes)"
 
+    echo "Verifying SHA-256 integrity..."
+    ACTUAL_SHA256=$(sha256sum "$TAR_FILE" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$TAR_FILE" 2>/dev/null | awk '{print $1}')
+    if [[ -z "$ACTUAL_SHA256" ]]; then
+        echo "Error: Could not compute SHA-256 hash (neither sha256sum nor shasum available)"
+        rm -f "$TAR_FILE"
+        exit 1
+    fi
+    if [[ "$ACTUAL_SHA256" != "$BINARY_SHA256" ]]; then
+        echo "Error: SHA-256 mismatch — binary integrity check failed."
+        echo "  Expected: $BINARY_SHA256"
+        echo "  Got:      $ACTUAL_SHA256"
+        rm -f "$TAR_FILE"
+        exit 1
+    fi
+    echo "SHA-256 verified: $ACTUAL_SHA256"
+
     mkdir -p "$EXTRACT_DIR"
     echo "Extracting $TAR_FILE to $EXTRACT_DIR"
-    tar -xzvf "$TAR_FILE" -C "$EXTRACT_DIR" || { echo "Extraction failed!"; exit 1; }
+    tar -xzvf "$TAR_FILE" --no-same-owner -C "$EXTRACT_DIR" || { echo "Extraction failed!"; exit 1; }
     echo "Extraction complete. Files are in $EXTRACT_DIR"
 }
 
