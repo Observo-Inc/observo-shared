@@ -1,45 +1,78 @@
 #!/bin/bash
 
 OBSERVO_HEADING="
-       #######    ######      #####     #######    ######     #     #    #######              #       ###                      
-       #     #    #     #    #     #    #          #     #    #     #    #     #             # #       #                       
-       #     #    #     #    #          #          #     #    #     #    #     #            #   #      #                       
-       #     #    ######      #####     #####      ######     #     #    #     #           #     #     #                       
-       #     #    #     #          #    #          #   #       #   #     #     #    ###    #######     #                       
-       #     #    #     #    #     #    #          #    #       # #      #     #    ###    #     #     #                       
-       #######    ######      #####     #######    #     #       #       #######    ###    #     #    ###                      
-                                                                                                                               
-                                                                                                                               
-                                                                                                                               
-                                                                                                                               
- ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### 
-                                                                                                                               
-                                                                                                                               
-                                                                                                                               
-                                                                                                                               
- ####### ######   #####  #######    ### #     #  #####  #######    #    #       #          #    ####### ### ####### #     #    
- #       #     # #     # #           #  ##    # #     #    #      # #   #       #         # #      #     #  #     # ##    #    
- #       #     # #       #           #  # #   # #          #     #   #  #       #        #   #     #     #  #     # # #   #    
- #####   #     # #  #### #####       #  #  #  #  #####     #    #     # #       #       #     #    #     #  #     # #  #  #    
- #       #     # #     # #           #  #   # #       #    #    ####### #       #       #######    #     #  #     # #   # #    
- #       #     # #     # #           #  #    ## #     #    #    #     # #       #       #     #    #     #  #     # #    ##    
- ####### ######   #####  #######    ### #     #  #####     #    #     # ####### ####### #     #    #    ### ####### #     #    
-                                                                                                                               
+       #######    ######      #####     #######    ######     #     #    #######              #       ###
+       #     #    #     #    #     #    #          #     #    #     #    #     #             # #       #
+       #     #    #     #    #          #          #     #    #     #    #     #            #   #      #
+       #     #    ######      #####     #####      ######     #     #    #     #           #     #     #
+       #     #    #     #          #    #          #   #       #   #     #     #    ###    #######     #
+       #     #    #     #    #     #    #          #    #       # #      #     #    ###    #     #     #
+       #######    ######      #####     #######    #     #       #       #######    ###    #     #    ###
+
+
+
+
+ ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #####
+
+
+
+
+ ####### ######   #####  #######    ### #     #  #####  #######    #    #       #          #    ####### ### ####### #     #
+ #       #     # #     # #           #  ##    # #     #    #      # #   #       #         # #      #     #  #     # ##    #
+ #       #     # #       #           #  # #   # #          #     #   #  #       #        #   #     #     #  #     # # #   #
+ #####   #     # #  #### #####       #  #  #  #  #####     #    #     # #       #       #     #    #     #  #     # #  #  #
+ #       #     # #     # #           #  #   # #       #    #    ####### #       #       #######    #     #  #     # #   # #
+ #       #     # #     # #           #  #    ## #     #    #    #     # #       #       #     #    #     #  #     # #    ##
+ ####### ######   #####  #######    ### #     #  #####     #    #     # ####### ####### #     #    #    ### ####### #     #
+
 "
 
 
 PREREQS="sudo curl jq sha1sum"
-INSTALL_DIR="/opt/observo"
-TMP_DIR="/tmp/observo"
-CONFIG_DIR="/opt/observo"
-TAR_FILE="$TMP_DIR"/edge.tar.gz
-EXTRACT_DIR="$CONFIG_DIR/binaries_edge"
-PACKAGE_NAME="otelcol-contrib"
-CONFIG_FILE="$CONFIG_DIR"/edge-config.json
-BASE_URL="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download"
-SERVICE_NAME="observo-agent"
-LOG_DIR="/var/log/observo"
-USER="observo"
+
+# -----------------------------------------------------------------------------
+# Path resolution: env var > platform default. Every variable below is
+# overridable via the corresponding environment variable so packagers can
+# relocate binaries / config / logs without editing the script. If a value
+# is unset we fall back to the same defaults the edge code uses
+# (internal/server/constant_linux.go). LoadEdgeConfig will read these env
+# vars on first boot and persist them into edge-config.json, keeping env /
+# json / default in sync (bidirectional via WriteEdgeConfig).
+# -----------------------------------------------------------------------------
+# Single root directory for the whole edge install. All other paths
+# are derived from this so an operator only needs to override one
+# variable to relocate the install. Must mirror
+# internal/server/constant_linux.go (RootDir).
+ROOT_DIR="${ROOT_DIR:-${INSTALL_DIR:-/opt/observo}}"
+INSTALL_DIR="$ROOT_DIR"
+CONFIG_DIR="$ROOT_DIR"          # edge-config.json + effective.yaml live in the root
+LOG_DIR="${LOG_DIR:-$ROOT_DIR/logs}"
+# UPDATE_DIR is the on-disk staging area for in-flight updates and the
+# heartbeat socket the watcher uses to coordinate with the supervisor.
+# Must match server.DefaultUpdateStagingDir in
+# internal/server/constant_linux.go ($ROOT_DIR/update).
+UPDATE_DIR="${UPDATE_DIR:-$ROOT_DIR/update}"
+TMP_DIR="${TMP_DIR:-/tmp/observo}"
+TAR_FILE="$TMP_DIR/edge.tar.gz"
+EXTRACT_DIR="$TMP_DIR/binaries_edge"
+
+# These env vars are read by the edge binary at boot. Binaries sit
+# directly in ROOT_DIR; the worker collector log goes under logs/.
+EDGE_EXECUTABLE="${EDGE_EXECUTABLE:-$ROOT_DIR/edge}"
+WATCHER_EXECUTABLE="${WATCHER_EXECUTABLE:-$ROOT_DIR/edge-watcher}"
+WORKER_EXECUTABLE_PATH="${WORKER_EXECUTABLE_PATH:-$ROOT_DIR/edge-worker}"
+WORKER_CONFIG_PATH="${WORKER_CONFIG_PATH:-$ROOT_DIR/effective.yaml}"
+WORKER_LOG_FILE_PATH="${WORKER_LOG_FILE_PATH:-$LOG_DIR/edge-worker.log}"
+EDGE_CONFIG_PATH="${EDGE_CONFIG_PATH:-$ROOT_DIR/edge-config.json}"
+
+CONFIG_FILE="$EDGE_CONFIG_PATH"
+SERVICE_NAME="${SERVICE_NAME:-observo-edge}"
+USER="${OBSERVO_USER:-observo}"
+
+# Names of the three binaries we expect to find in the release bundle.
+EDGE_BINARY_NAME="edge"
+WATCHER_BINARY_NAME="edge-watcher"
+WORKER_BINARY_NAME="edge-worker"
 
 dependencies_check() {
     echo "Checking for script dependencies..."
@@ -115,6 +148,23 @@ parse_environment_variable() {
     else
         echo "Error: download_url not found in argument"
         return 1  # Failure
+    fi
+
+    # checksum=<base64-sha256> is the SHA256 of the release tarball,
+    # read directly from the S3 object's ChecksumSHA256 attribute by
+    # fleet-manager. S3 returns this as base64 (NOT hex), so we keep
+    # it in that form end-to-end and compare via
+    # `openssl dgst -sha256 -binary FILE | base64`. We verify the
+    # downloaded tarball against it BEFORE extracting (see
+    # download_and_extract_agent). Mandatory: an install without
+    # verification is a supply-chain hole.
+    if [[ "$env_var" =~ checksum=([A-Za-z0-9+/=]+) ]]; then
+        EXPECTED_CHECKSUM="${BASH_REMATCH[1]}"
+        echo "Extracted checksum: $EXPECTED_CHECKSUM"
+        export EXPECTED_CHECKSUM
+    else
+        echo "Error: checksum not found in argument"
+        return 1
     fi
 
     return 0 # Success
@@ -222,11 +272,11 @@ download_and_extract_agent() {
         echo "Error: Downloaded file not found at $TAR_FILE. URL may have expired or download failed."
         exit 1
     fi
-    
+
     # if the url is expired then it make smaller file size. Check if file size is suspiciously small (likely an error response)
     FILE_SIZE=$(stat -f%z "$TAR_FILE" 2>/dev/null || stat -c%s "$TAR_FILE" 2>/dev/null || echo "0")
     MIN_EXPECTED_SIZE=10240  # 10KB minimum for a valid tar.gz archive
-    
+
     if [[ $FILE_SIZE -lt $MIN_EXPECTED_SIZE ]]; then
         echo "Error: Downloaded file is too small ($FILE_SIZE bytes). Expected at least $MIN_EXPECTED_SIZE bytes."
         echo "This usually means the download URL has expired or returned an error response."
@@ -235,8 +285,31 @@ download_and_extract_agent() {
         echo ""
         exit 1
     fi
-    
+
     echo "Download completed and saved to $TAR_FILE (size: $FILE_SIZE bytes)"
+
+    # Verify the downloaded tarball's SHA256 matches the value
+    # fleet-manager pulled from S3 (ChecksumSHA256, base64-encoded).
+    # We compute the same way the update watcher does so the two
+    # always agree: raw SHA256 → base64. Fail closed on mismatch —
+    # do NOT proceed to extract a binary we can't verify.
+    if command -v openssl >/dev/null 2>&1; then
+        ACTUAL_CHECKSUM=$(openssl dgst -sha256 -binary "$TAR_FILE" | openssl base64 -A)
+    elif command -v sha256sum >/dev/null 2>&1; then
+        # Fallback: sha256sum emits hex, convert to base64.
+        ACTUAL_CHECKSUM=$(sha256sum "$TAR_FILE" | awk '{print $1}' | xxd -r -p | base64)
+    else
+        echo "Error: neither openssl nor sha256sum is installed; cannot verify download integrity"
+        exit 1
+    fi
+    if [[ "$ACTUAL_CHECKSUM" != "$EXPECTED_CHECKSUM" ]]; then
+        echo "Error: checksum mismatch for $TAR_FILE"
+        echo "  expected (from S3): $EXPECTED_CHECKSUM"
+        echo "  actual (computed):  $ACTUAL_CHECKSUM"
+        echo "Refusing to install a tampered or corrupted binary."
+        exit 1
+    fi
+    echo "Checksum verified: $ACTUAL_CHECKSUM"
 
     mkdir -p "$EXTRACT_DIR"
     echo "Extracting $TAR_FILE to $EXTRACT_DIR"
@@ -245,44 +318,70 @@ download_and_extract_agent() {
 }
 
 move_to_bin_and_make_executable() {
-    # Find the actual binary (ignoring macOS metadata)
-    OTEL_BINARY_FILE=$(find "$EXTRACT_DIR" -type f -executable -name "otelcontrib*" | head -n 1)
+    # The release bundle is expected to contain exactly three binaries,
+    # named `edge`, `edge-watcher`, and `edge-worker`. They are installed
+    # to the paths resolved earlier from env vars (or defaults), so an
+    # operator who sets, say, WORKER_EXECUTABLE_PATH=/usr/local/bin/ew
+    # gets the worker dropped there and the edge will then find it via
+    # the same env var on boot.
+    install_binary() {
+        local src_name="$1"
+        local dest_path="$2"
 
-    if [[ -z "$OTEL_BINARY_FILE" ]]; then
-        echo "Error: No executable file found in $EXTRACT_DIR!"
-        exit 1
-    fi
+        local src
+        src=$(find "$EXTRACT_DIR" -type f -name "$src_name" | head -n 1)
+        if [[ -z "$src" ]]; then
+            echo "Error: $src_name not found in bundle at $EXTRACT_DIR"
+            exit 1
+        fi
+        sudo mkdir -p "$(dirname "$dest_path")"
+        echo "Installing $src -> $dest_path"
+        sudo mv "$src" "$dest_path" || { echo "Move failed for $src_name"; exit 1; }
+        # All three binaries (edge, edge-watcher, edge-worker) must end
+        # up with identical ownership and exec permissions. The
+        # supervisor fork/execs the watcher under the same UID it runs
+        # under (the systemd User= below), so any mismatch surfaces as
+        # `fork/exec ... operation not permitted` at update time. Set
+        # mode + ownership explicitly here per file rather than
+        # relying solely on the directory-wide chown later, so even if
+        # the bundle's tar entries carried stray uid/mode bits we
+        # normalise them.
+        sudo chown "$USER:$USER" "$dest_path"
+        sudo chmod 0755 "$dest_path"
+    }
 
-    echo "Moving $OTEL_BINARY_FILE to $INSTALL_DIR..."
-    sudo mv "$OTEL_BINARY_FILE" "$INSTALL_DIR/" || { echo "Move failed!"; exit 1; }
+    install_binary "$EDGE_BINARY_NAME"    "$EDGE_EXECUTABLE"
+    install_binary "$WATCHER_BINARY_NAME" "$WATCHER_EXECUTABLE"
+    install_binary "$WORKER_BINARY_NAME"  "$WORKER_EXECUTABLE_PATH"
 
-    # Ensure the binary is executable
-    BIN_NAME=$(basename "$OTEL_BINARY_FILE")
-    sudo chmod +x "$INSTALL_DIR/$BIN_NAME"
-
-    EDGE_BINARY_FILE=$(find "$EXTRACT_DIR" -type f -executable -name "edge*" | head -n 1)
-
-    if [[ -z "$EDGE_BINARY_FILE" ]]; then
-        echo "Error: No executable file found in $EXTRACT_DIR!"
-        exit 1
-    fi
-
-    echo "Moving $EDGE_BINARY_FILE to $INSTALL_DIR..."
-    sudo mv "$EDGE_BINARY_FILE" "$INSTALL_DIR/" || { echo "Move failed!"; exit 1; }
-
-    # Ensure the binary is executable
-    BIN_NAME=$(basename "$EDGE_BINARY_FILE")
-    sudo chmod +x "$INSTALL_DIR/$BIN_NAME"
-
-    # Fix ownership of the entire install directory after moving files
-    echo "Setting ownership of $INSTALL_DIR to $USER:$USER"
-    sudo chown -R "$USER:$USER" "$INSTALL_DIR"
+    # Belt-and-suspenders: recursively normalise the entire install
+    # directory in case any sibling files (config, certs, staging
+    # area) were created with different ownership.
+    # Since edge runs as root, set ownership to root:root for consistency.
+    echo "Setting ownership of $INSTALL_DIR to root:root"
+    sudo chown -R root:root "$INSTALL_DIR"
 
     # Ensure proper permissions for the directory and config file
     sudo chmod 755 "$INSTALL_DIR"
     if [[ -f "$CONFIG_FILE" ]]; then
         sudo chmod 644 "$CONFIG_FILE"
     fi
+
+    # Sanity check: confirm each binary is owned by root and is executable.
+    # Catching this here is much friendlier than the later "fork/exec ...: operation not permitted"
+    # failure the supervisor would log mid-update.
+    for bin in "$EDGE_EXECUTABLE" "$WATCHER_EXECUTABLE" "$WORKER_EXECUTABLE_PATH"; do
+        if [[ ! -x "$bin" ]]; then
+            echo "Error: $bin is not executable after install" >&2
+            exit 1
+        fi
+        local owner
+        owner=$(stat -c '%U:%G' "$bin" 2>/dev/null || stat -f '%Su:%Sg' "$bin" 2>/dev/null)
+        if [[ "$owner" != "root:root" ]]; then
+            echo "Error: $bin has owner $owner after install (expected root:root)" >&2
+            exit 1
+        fi
+    done
 
     echo "deleting $EXTRACT_DIR"
     rm -rf $EXTRACT_DIR
@@ -344,18 +443,24 @@ create_system_user() {
     esac
 }
 
-setup_log_directory() {
-    echo "Setting up log directory: $LOG_DIR"
+setup_directories() {
+    # Lay down the canonical directory tree:
+    #   $ROOT_DIR/                  binaries + edge-config.json + effective.yaml
+    #   $ROOT_DIR/logs/             edge-worker, supervisor, update-watcher logs
+    #   $ROOT_DIR/update/           staging dir + heartbeat socket + flag file
+    # Single chown -R later normalises ownership across the whole tree.
+    echo "Setting up edge directory tree under $ROOT_DIR"
+    for d in "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"; do
+        if [ ! -d "$d" ]; then
+            echo "  creating $d"
+            sudo mkdir -p "$d" || { echo "Failed to create $d"; exit 1; }
+        fi
+    done
 
-    if [ ! -d "$LOG_DIR" ]; then
-        echo "Creating log directory..."
-        sudo mkdir -p "$LOG_DIR" || { echo "Failed to create log directory"; exit 1; }
-    else
-        echo "Log directory already exists."
-    fi
-
-    echo "Setting ownership to $USER:$USER"
-    sudo chown "$USER:$USER" "$LOG_DIR" || { echo "Failed to set ownership on log directory"; exit 1; }
+    echo "Setting ownership to root:root (edge runs as root)"
+    sudo chown root:root "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" \
+        || { echo "Failed to set ownership on edge directories"; exit 1; }
+    sudo chmod 0755 "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"
 }
 
 create_systemd_service() {
@@ -367,14 +472,27 @@ create_systemd_service() {
         return
     fi
 
-    EDGE_BINARY="$INSTALL_DIR/edge"
-
-    if [[ ! -f "$EDGE_BINARY" ]]; then
-        echo "Error: $EDGE_BINARY not found!"
+    if [[ ! -f "$EDGE_EXECUTABLE" ]]; then
+        echo "Error: edge binary missing at $EDGE_EXECUTABLE"
         exit 1
     fi
+    if [[ ! -f "$WATCHER_EXECUTABLE" ]]; then
+        echo "Error: watcher binary missing at $WATCHER_EXECUTABLE"
+        exit 1
+    fi
+    if [[ ! -f "$WORKER_EXECUTABLE_PATH" ]]; then
+        echo "Error: worker binary missing at $WORKER_EXECUTABLE_PATH"
+        exit 1
+    fi
+
     SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
     echo "Creating systemd service file: $SERVICE_FILE"
+    # Env vars below are the contract between the installer and the
+    # edge binary's LoadEdgeConfig: on boot, LoadEdgeConfig reads them
+    # (env > json > default) and writes them back into edge-config.json
+    # so subsequent restarts see the same layout even if the unit file
+    # is later edited. Keep the list aligned with
+    # internal/server/constant.go.
     tee "$SERVICE_FILE" > /dev/null <<EOF
 [Unit]
 Description=Observo Agent Service
@@ -382,11 +500,14 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$EDGE_BINARY
+ExecStart=$EDGE_EXECUTABLE
 Restart=always
 RestartSec=5
-User=$USER
-Group=$USER
+# NOTE: edge runs as root so the update watcher (spawned by edge) inherits
+# root privileges and can call systemctl restart/stop directly without sudo.
+# Running as root also avoids permission issues with /opt/observo files.
+User=root
+Group=root
 WorkingDirectory=$INSTALL_DIR
 
 Environment="AGENT_ID=$AGENT_ID"
@@ -397,13 +518,16 @@ Environment="CONFIG_VERSION_ID=$CONFIG_VERSION_ID"
 Environment="FLEET_ID=$FLEET_ID"
 Environment="PLATFORM=$PLATFORM"
 Environment="EDGE_MANAGER_URL=$EDGE_MANAGER_URL"
-Environment="OTEL_LOG_FILE_PATH=$LOG_DIR/otel-collector.log"
+Environment="EDGE_CONFIG_PATH=$EDGE_CONFIG_PATH"
+Environment="EDGE_EXECUTABLE=$EDGE_EXECUTABLE"
+Environment="WATCHER_EXECUTABLE=$WATCHER_EXECUTABLE"
+Environment="WORKER_EXECUTABLE_PATH=$WORKER_EXECUTABLE_PATH"
+Environment="WORKER_CONFIG_PATH=$WORKER_CONFIG_PATH"
+Environment="WORKER_LOG_FILE_PATH=$WORKER_LOG_FILE_PATH"
 
-
-
-
-StandardOutput=append:$LOG_DIR/observo-agent.log
-StandardError=append:$LOG_DIR/observo-agent.log
+# All edge-related logs live under $LOG_DIR (= $ROOT_DIR/logs by default).
+StandardOutput=append:$LOG_DIR/observo-edge.log
+StandardError=append:$LOG_DIR/observo-edge.log
 
 [Install]
 WantedBy=multi-user.target
@@ -422,8 +546,8 @@ echo "$OBSERVO_HEADING"
 #1 create user and group
 create_system_user
 
-#2 setup log directory
-setup_log_directory
+#2 setup root + logs + update directory tree
+setup_directories
 
 #3 check and parse environment variable
 if ! parse_environment_variable "$@"; then exit 1; fi # Check if parsing was successful.
