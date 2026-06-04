@@ -69,8 +69,13 @@ $EdgeConfigPath       = Get-EnvOrDefault "EDGE_CONFIG_PATH"       "$RootDir\edge
 
 $ConfigFile   = $EdgeConfigPath
 $ServiceName  = Get-EnvOrDefault "SERVICE_NAME" "observo-edge"
-$StdoutLogFile = "$LogDir\observoedge_stdout.log"
-$StderrLogFile = "$LogDir\observoedge_stderr.log"
+# Single combined log file, matching Linux (systemd unit writes
+# StandardOutput/StandardError to $LOG_DIR/observo-edge.log) and macOS
+# (launchd plist points both StdoutPath and StderrPath at the same
+# $LOG_DIR/observo-edge.log). The cmd wrapper below redirects 2>&1 into
+# $StdoutLogFile so a single file captures everything.
+$StdoutLogFile = "$LogDir\observo-edge.log"
+$StderrLogFile = "$LogDir\observo-edge.log"
 $EdgeCollectorLogFile = $WorkerLogFilePath
 
 $DefaultDownloadUrl = "https://example.com"
@@ -348,7 +353,7 @@ function Move-BinariesToInstallDir {
                     Start-Sleep -Seconds 1
                 }
             } catch {
-                Write-Host "Warning: could not check locks on $DestPath: $_"
+                Write-Host "Warning: could not check locks on ${DestPath}: $_"
             }
         }
 
