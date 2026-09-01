@@ -34,6 +34,13 @@ LOG_DIR="${LOG_DIR:-$ROOT_DIR/logs}"
 # Must match server.DefaultUpdateStagingDir in
 # internal/server/constant_darwin.go ($ROOT_DIR/update).
 UPDATE_DIR="${UPDATE_DIR:-$ROOT_DIR/update}"
+# DATA_DIR is where the Vector-based worker persists its own state (file
+# checkpoints, buffers, etc). Every edge-config.json sets data_dir to this
+# path, and the worker's config validation hard-fails (exit 78) if it
+# doesn't already exist -- the worker does not create it itself. Must
+# match server.DefaultWorkerDataDir in internal/server/constant_darwin.go
+# ($ROOT_DIR/data).
+DATA_DIR="${DATA_DIR:-$ROOT_DIR/data}"
 TMP_DIR="${TMP_DIR:-/tmp/observo}"
 TAR_FILE="$TMP_DIR/edge.tar.gz"
 EXTRACT_DIR="$TMP_DIR/binaries_edge"
@@ -161,20 +168,12 @@ decode_and_extract_config() {
     PLATFORM=$(echo "$payload" | jq -r '.platform // empty')
     EDGE_MANAGER_URL=$(echo "$payload" | jq -r '.edge_manager_url // empty')
 
-    # edge_manager_tls_enabled is derived from the URL scheme rather than
-    # trusted from the payload: the enrollment HTTP client (EnsureEnrolled ->
-    # enrollEndpoint) reads this flag to decide http:// vs https://, with no
-    # fallback/retry if it guesses wrong (unlike the OpAMP client's
-    # schemeFlip). A wss:// (or https://) edge_manager_url with this flag
-    # left false/unset makes enrollment fail permanently against a TLS-only
-    # ingress -- fatal after 10 attempts, then crash-loop under the service
-    # manager.
-    local edge_manager_tls_enabled
-    case "$EDGE_MANAGER_URL" in
-        wss://*|https://*) edge_manager_tls_enabled=true ;;
-        *)                 edge_manager_tls_enabled=false ;;
-    esac
-    payload=$(echo "$payload" | jq --argjson tls "$edge_manager_tls_enabled" '. + {edge_manager_tls_enabled: $tls}')
+    # edge_manager_tls_enabled is always set true: every supported deployment
+    # terminates TLS at the edge-manager ingress, and the enrollment HTTP
+    # client (EnsureEnrolled -> enrollEndpoint) reads this flag to decide
+    # http:// vs https://, with no fallback/retry if it guesses wrong (unlike
+    # the OpAMP client's schemeFlip).
+    payload=$(echo "$payload" | jq --argjson tls true '. + {edge_manager_tls_enabled: $tls}')
 
     echo "$payload" > "$CONFIG_FILE"
     chmod 644 "$CONFIG_FILE"
@@ -252,9 +251,10 @@ install_binaries() {
     #   $ROOT_DIR/        binaries + edge-config.json + effective.yaml
     #   $ROOT_DIR/logs/   supervisor + worker + update-watcher logs
     #   $ROOT_DIR/update/ staging dir + heartbeat socket + flag file
-    mkdir -p "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"
-    chown root:wheel "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"
-    chmod 0755 "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"
+    #   $ROOT_DIR/data/   worker data_dir (file checkpoints, buffers)
+    mkdir -p "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" "$DATA_DIR"
+    chown root:wheel "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" "$DATA_DIR"
+    chmod 0755 "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" "$DATA_DIR"
     install_binary "$EDGE_BINARY_NAME"    "$EDGE_EXECUTABLE"
     install_binary "$WATCHER_BINARY_NAME" "$WATCHER_EXECUTABLE"
     install_binary "$WORKER_BINARY_NAME"  "$WORKER_EXECUTABLE_PATH"

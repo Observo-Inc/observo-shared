@@ -53,6 +53,13 @@ $LogDir     = Get-EnvOrDefault "LOG_DIR"     "$RootDir\logs"
 # match server.DefaultUpdateStagingDir in
 # internal/server/constant_windows.go ($RootDir\update).
 $UpdateDir = Get-EnvOrDefault "UPDATE_DIR" "$RootDir\update"
+# DataDir is where the Vector-based worker persists its own state (file
+# checkpoints, buffers, etc). Every edge-config.json sets data_dir to this
+# path, and the worker's config validation hard-fails (exit 78) if it
+# doesn't already exist -- the worker does not create it itself. Must
+# match server.DefaultWorkerDataDir in internal/server/constant_windows.go
+# ($RootDir\data).
+$DataDir = Get-EnvOrDefault "DATA_DIR" "$RootDir\data"
 $TmpDir     = Get-EnvOrDefault "TMP_DIR"     "$env:TEMP\observo"
 $ZipFile    = "$TmpDir\edge.zip"
 $ExtractDir = "$TmpDir\binaries_edge"
@@ -239,16 +246,12 @@ function Decode-AndExtractConfig {
         exit 1
     }
 
-    # edge_manager_tls_enabled is derived from the URL scheme rather than
-    # trusted from the payload: the enrollment HTTP client (EnsureEnrolled ->
-    # enrollEndpoint) reads this flag to decide http:// vs https://, with no
-    # fallback/retry if it guesses wrong (unlike the OpAMP client's
-    # schemeFlip). A wss:// (or https://) edge_manager_url with this flag
-    # left false/unset makes enrollment fail permanently against a TLS-only
-    # ingress -- fatal after 10 attempts, then crash-loop under the service
-    # manager.
-    $edgeManagerTlsEnabled = $EdgeManagerUrl -match '^(wss|https)://'
-    $config | Add-Member -NotePropertyName "edge_manager_tls_enabled" -NotePropertyValue $edgeManagerTlsEnabled -Force
+    # edge_manager_tls_enabled is always set true: every supported deployment
+    # terminates TLS at the edge-manager ingress, and the enrollment HTTP
+    # client (EnsureEnrolled -> enrollEndpoint) reads this flag to decide
+    # http:// vs https://, with no fallback/retry if it guesses wrong (unlike
+    # the OpAMP client's schemeFlip).
+    $config | Add-Member -NotePropertyName "edge_manager_tls_enabled" -NotePropertyValue $true -Force
     $DecodedWithTls = $config | ConvertTo-Json -Depth 10
 
     # Write JSON (now carrying edge_manager_tls_enabled) to both current and
@@ -339,7 +342,8 @@ function Move-BinariesToInstallDir {
     #   $RootDir\           binaries + edge-config.json + effective.yaml
     #   $RootDir\logs\      supervisor + worker + update-watcher logs
     #   $RootDir\update\    staging dir + heartbeat (if used) + flag file
-    foreach ($d in @($RootDir, $LogDir, $UpdateDir)) {
+    #   $RootDir\data\      worker data_dir (file checkpoints, buffers)
+    foreach ($d in @($RootDir, $LogDir, $UpdateDir, $DataDir)) {
         if (-not (Test-Path -Path $d)) {
             New-Item -ItemType Directory -Path $d -Force | Out-Null
             Write-Host "Created directory: $d"
