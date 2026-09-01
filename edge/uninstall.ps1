@@ -1,47 +1,70 @@
 # Observo Edge Uninstall Script for Windows
+#
+# -KeepConfig is the single knob:
+#   absent -> remove EVERYTHING the agent installed (binaries, config,
+#             install dir, logs, update dir).
+#   present -> remove everything EXCEPT edge-config.json, which is left in
+#              place inside the install dir.
 param (
-    [switch]$KeepConfig,
-    [switch]$KeepLogs
+    [switch]$KeepConfig
 )
 
+# This uninstaller cleans up BOTH the legacy ("old") agent layout and the
+# current ("new") edge layout so it works regardless of which is installed:
+#   Scheduled task name: old=ObservoEdge   new=observo-edge
+#   Binaries:            old=edge*.exe + otelcontrib*.exe
+#                        new=edge.exe + edge-watcher.exe + edge-worker.exe
+#   New-only dir:        $InstallDir\update
+# All removals are best-effort: missing resources are logged and skipped
+# (not fatal), since old- and new-layout artifacts rarely coexist.
 $InstallDir  = "C:\Program Files\Observo"
 $ConfigFile  = "$InstallDir\edge-config.json"
 $HistoryDir  = "$InstallDir\history"
 $LogDir      = "$InstallDir\logs"
+$UpdateDir   = "$InstallDir\update"
 $WrapperPath = "$InstallDir\run_observo.cmd"
-$ServiceName = "ObservoEdge"
+# Both the current task name and the legacy one are cleaned up.
+$ServiceNames  = @("observo-edge", "ObservoEdge")
+# Process names covering old (otelcontribcol) and new (edge-watcher/worker) layouts.
+$ProcessNames  = @("edge", "edge-watcher", "edge-worker", "otelcontribcol")
 
 function Stop-ObservoTask {
-    Write-Host "Stopping scheduled task: $ServiceName..."
-    $task = Get-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
-    if (-not $task) {
-        Write-Host "Error: Scheduled task '$ServiceName' not found." -ForegroundColor Red
-        exit 1
-    }
+    foreach ($name in $ServiceNames) {
+        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if ($task) {
+            Write-Host "Stopping scheduled task: $name..."
+            Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            Write-Host "Unregistering scheduled task: $name..."
+            try {
+                Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction Stop
+            } catch {
+                Write-Host "Warning: failed to unregister scheduled task '$name': $_" -ForegroundColor Yellow
+            }
+        }
 
-    Stop-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
-
-    Write-Host "Unregistering scheduled task: $ServiceName..."
-    try {
-        Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false -ErrorAction Stop
-    } catch {
-        Write-Host "Error: Failed to unregister scheduled task '$ServiceName': $_" -ForegroundColor Red
-        exit 1
+        # The old installer could also register a Windows service of the same
+        # name; remove it too if present.
+        $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+        if ($svc) {
+            Write-Host "Stopping and removing Windows service: $name..."
+            Stop-Service -Name $name -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+            sc.exe delete $name | Out-Null
+        }
     }
 }
 
 function Stop-ObservoProcesses {
     Write-Host "Checking for running Observo processes..."
-    foreach ($name in @("edge", "otelcontribcol")) {
+    foreach ($name in $ProcessNames) {
         $procs = Get-Process -Name $name -ErrorAction SilentlyContinue
         foreach ($proc in $procs) {
             Write-Host "Stopping process $name (PID $($proc.Id))..."
             try {
                 Stop-Process -Id $proc.Id -Force -ErrorAction Stop
             } catch {
-                Write-Host "Error: Failed to stop process $name (PID $($proc.Id)): $_" -ForegroundColor Red
-                exit 1
+                Write-Host "Warning: failed to stop process $name (PID $($proc.Id)): $_" -ForegroundColor Yellow
             }
         }
     }
@@ -49,32 +72,33 @@ function Stop-ObservoProcesses {
 }
 
 function Remove-WrapperScript {
-    Write-Host "Removing wrapper script: $WrapperPath..."
     if (-not (Test-Path -Path $WrapperPath)) {
-        Write-Host "Error: Wrapper script $WrapperPath not found." -ForegroundColor Red
-        exit 1
+        Write-Host "Wrapper script $WrapperPath not found, skipping."
+        return
     }
+    Write-Host "Removing wrapper script: $WrapperPath..."
     try {
         Remove-Item -Path $WrapperPath -Force -ErrorAction Stop
     } catch {
-        Write-Host "Error: Failed to remove wrapper script: $_" -ForegroundColor Red
-        exit 1
+        Write-Host "Warning: failed to remove wrapper script: $_" -ForegroundColor Yellow
     }
 }
 
 function Remove-Binaries {
-    Write-Host "Removing binaries from $InstallDir..."
     if (-not (Test-Path -Path $InstallDir)) {
-        Write-Host "Error: Install directory $InstallDir not found." -ForegroundColor Red
-        exit 1
+        Write-Host "Install directory $InstallDir not found, skipping binary removal."
+        return
     }
+    Write-Host "Removing binaries from $InstallDir..."
 
+    # edge*.exe covers edge.exe, edge-watcher.exe, edge-worker.exe (new) and
+    # any old edge*.exe; otelcontrib*.exe covers the legacy collector binary.
     $binaries  = @(Get-ChildItem -Path $InstallDir -Filter "edge*.exe"        -ErrorAction SilentlyContinue)
     $binaries += @(Get-ChildItem -Path $InstallDir -Filter "otelcontrib*.exe" -ErrorAction SilentlyContinue)
 
     if ($binaries.Count -eq 0) {
-        Write-Host "Error: No binaries found in $InstallDir." -ForegroundColor Red
-        exit 1
+        Write-Host "No binaries found in $InstallDir, skipping."
+        return
     }
 
     foreach ($bin in $binaries) {
@@ -82,77 +106,83 @@ function Remove-Binaries {
         try {
             Remove-Item -Path $bin.FullName -Force -ErrorAction Stop
         } catch {
-            Write-Host "Error: Failed to remove $($bin.FullName): $_" -ForegroundColor Red
-            exit 1
+            Write-Host "Warning: failed to remove $($bin.FullName): $_" -ForegroundColor Yellow
         }
     }
 }
 
 function Remove-Config {
     if ($KeepConfig) {
-        Write-Host "Skipping config removal (-KeepConfig set)."
-        return
+        Write-Host "Keeping config file (-KeepConfig set): $ConfigFile"
+    } elseif (-not (Test-Path -Path $ConfigFile)) {
+        Write-Host "Config file $ConfigFile not found, skipping."
+    } else {
+        Write-Host "Removing config file: $ConfigFile..."
+        try {
+            Remove-Item -Path $ConfigFile -Force -ErrorAction Stop
+        } catch {
+            Write-Host "Warning: failed to remove config file: $_" -ForegroundColor Yellow
+        }
     }
 
-    Write-Host "Removing config file: $ConfigFile..."
-    if (-not (Test-Path -Path $ConfigFile)) {
-        Write-Host "Error: Config file $ConfigFile not found." -ForegroundColor Red
-        exit 1
-    }
-    try {
-        Remove-Item -Path $ConfigFile -Force -ErrorAction Stop
-    } catch {
-        Write-Host "Error: Failed to remove config file: $_" -ForegroundColor Red
-        exit 1
-    }
-
+    # The history dir is not the config file, so it is always removed (even
+    # with -KeepConfig, which keeps only edge-config.json).
     if (Test-Path -Path $HistoryDir) {
         Write-Host "Removing config history directory: $HistoryDir..."
         try {
             Remove-Item -Path $HistoryDir -Recurse -Force -ErrorAction Stop
         } catch {
-            Write-Host "Error: Failed to remove history directory: $_" -ForegroundColor Red
-            exit 1
+            Write-Host "Warning: failed to remove history directory: $_" -ForegroundColor Yellow
         }
     }
 }
 
 function Remove-LogDir {
-    if ($KeepLogs) {
-        Write-Host "Skipping log directory removal (-KeepLogs set)."
+    # Logs are never preserved; always removed.
+    if (-not (Test-Path -Path $LogDir)) {
+        Write-Host "Log directory $LogDir not found, skipping."
         return
     }
-
     Write-Host "Removing log directory: $LogDir..."
-    if (-not (Test-Path -Path $LogDir)) {
-        Write-Host "Error: Log directory $LogDir not found." -ForegroundColor Red
-        exit 1
-    }
     try {
         Remove-Item -Path $LogDir -Recurse -Force -ErrorAction Stop
     } catch {
-        Write-Host "Error: Failed to remove log directory: $_" -ForegroundColor Red
-        exit 1
+        Write-Host "Warning: failed to remove log directory: $_" -ForegroundColor Yellow
+    }
+}
+
+function Remove-UpdateDir {
+    # The update staging dir holds transient in-flight update artifacts (new
+    # layout only). Safe to remove even when config/logs are preserved.
+    if (-not (Test-Path -Path $UpdateDir)) {
+        return
+    }
+    Write-Host "Removing update staging directory: $UpdateDir..."
+    try {
+        Remove-Item -Path $UpdateDir -Recurse -Force -ErrorAction Stop
+    } catch {
+        Write-Host "Warning: failed to remove update directory: $_" -ForegroundColor Yellow
     }
 }
 
 function Remove-InstallDir {
-    # Keep the directory if config or logs are being preserved (they live inside it).
-    if ($KeepConfig -or $KeepLogs) {
-        Write-Host "Preserving install directory (config or logs retained): $InstallDir"
+    # When -KeepConfig is set we preserve the directory because edge-config.json
+    # lives inside it; every other entry (binaries, logs, update dir, history)
+    # is removed by the other always-run steps, leaving only edge-config.json.
+    if ($KeepConfig) {
+        Write-Host "Preserving install directory (only $ConfigFile retained): $InstallDir"
         return
     }
 
-    Write-Host "Removing install directory: $InstallDir..."
     if (-not (Test-Path -Path $InstallDir)) {
-        Write-Host "Error: Install directory $InstallDir not found." -ForegroundColor Red
-        exit 1
+        Write-Host "Install directory $InstallDir not found, skipping."
+        return
     }
+    Write-Host "Removing install directory: $InstallDir..."
     try {
         Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction Stop
     } catch {
-        Write-Host "Error: Failed to remove install directory: $_" -ForegroundColor Red
-        exit 1
+        Write-Host "Warning: failed to remove install directory: $_" -ForegroundColor Yellow
     }
 }
 
@@ -176,7 +206,10 @@ Remove-Config
 # Step 6: Remove log directory
 Remove-LogDir
 
-# Step 7: Remove install directory
+# Step 7: Remove update staging directory (new layout only)
+Remove-UpdateDir
+
+# Step 8: Remove install directory
 Remove-InstallDir
 
 Write-Host "Observo Edge uninstalled successfully."

@@ -152,8 +152,6 @@ decode_and_extract_config() {
 
     local payload
     payload=$(printf '%s' "$TOKEN" | base64 -D 2>/dev/null || printf '%s' "$TOKEN" | base64 --decode)
-    echo "$payload" > "$CONFIG_FILE"
-    chmod 644 "$CONFIG_FILE"
 
     SITE_ID=$(echo "$payload" | jq -r '.site_id // empty')
     AUTH_TOKEN=$(echo "$payload" | jq -r '.auth_token // empty')
@@ -163,15 +161,30 @@ decode_and_extract_config() {
     PLATFORM=$(echo "$payload" | jq -r '.platform // empty')
     EDGE_MANAGER_URL=$(echo "$payload" | jq -r '.edge_manager_url // empty')
 
-    # Derive AGENT_ID deterministically from hardware UUID so re-installs
-    # reuse the same agent identity in the fleet manager.
-    local hw_uuid
-    hw_uuid=$(ioreg -rd1 -c IOPlatformExpertDevice | awk -F'"' '/IOPlatformUUID/{print $4; exit}')
-    local composite="${hw_uuid}:$(hostname):${ARCH}"
-    AGENT_ID=$(printf '%s' "$composite" | shasum -a 1 | \
-        sed 's/^\(........\)\(....\)\(....\)\(....\)\(............\).*/\1-\2-\3-\4-\5/')
+    # edge_manager_tls_enabled is derived from the URL scheme rather than
+    # trusted from the payload: the enrollment HTTP client (EnsureEnrolled ->
+    # enrollEndpoint) reads this flag to decide http:// vs https://, with no
+    # fallback/retry if it guesses wrong (unlike the OpAMP client's
+    # schemeFlip). A wss:// (or https://) edge_manager_url with this flag
+    # left false/unset makes enrollment fail permanently against a TLS-only
+    # ingress -- fatal after 10 attempts, then crash-loop under the service
+    # manager.
+    local edge_manager_tls_enabled
+    case "$EDGE_MANAGER_URL" in
+        wss://*|https://*) edge_manager_tls_enabled=true ;;
+        *)                 edge_manager_tls_enabled=false ;;
+    esac
+    payload=$(echo "$payload" | jq --argjson tls "$edge_manager_tls_enabled" '. + {edge_manager_tls_enabled: $tls}')
 
-    export SITE_ID AUTH_TOKEN AGENT_VERSION CONFIG_VERSION_ID FLEET_ID PLATFORM EDGE_MANAGER_URL AGENT_ID
+    echo "$payload" > "$CONFIG_FILE"
+    chmod 644 "$CONFIG_FILE"
+
+    # SECURITY: AGENT_ID is no longer derived on the client (hardware UUID /
+    # hostname). A client-chosen UID is self-asserted identity. Identity is now
+    # server-assigned: the edge performs an enrollment exchange (/enroll) on
+    # first boot and persists the server-assigned instance_uid + per-agent token
+    # to edge-config.json. Do NOT reintroduce AGENT_ID derivation here.
+    export SITE_ID AUTH_TOKEN AGENT_VERSION CONFIG_VERSION_ID FLEET_ID PLATFORM EDGE_MANAGER_URL
 }
 
 download_and_extract_agent() {
@@ -304,7 +317,8 @@ create_launchd_plist() {
   <string>${STDERR_LOG}</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>AGENT_ID</key><string>${AGENT_ID}</string>
+    <!-- AGENT_ID intentionally omitted: identity is server-assigned via
+         enrollment and persisted to edge-config.json on first boot. -->
     <key>SITE_ID</key><string>${SITE_ID}</string>
     <key>AUTH_TOKEN</key><string>${AUTH_TOKEN}</string>
     <key>AGENT_VERSION</key><string>${AGENT_VERSION}</string>
