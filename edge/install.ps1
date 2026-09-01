@@ -215,14 +215,6 @@ function Decode-AndExtractConfig {
     $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
     $HistoricalConfigFile = Join-Path -Path $HistoryDir -ChildPath "edge-config-$Timestamp.json"
 
-    # Write decoded JSON to both current and historical config files
-    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($ConfigFile, $Decoded, $utf8NoBom)
-    [System.IO.File]::WriteAllText($HistoricalConfigFile, $Decoded, $utf8NoBom)
-
-    Write-Host "Configuration saved to $ConfigFile"
-    Write-Host "Historical copy saved to $HistoricalConfigFile"
-
     # Parse JSON configuration
     try {
         $config = $Decoded | ConvertFrom-Json
@@ -246,6 +238,27 @@ function Decode-AndExtractConfig {
         Write-Host "Error parsing JSON configuration: $_" -ForegroundColor Red
         exit 1
     }
+
+    # edge_manager_tls_enabled is derived from the URL scheme rather than
+    # trusted from the payload: the enrollment HTTP client (EnsureEnrolled ->
+    # enrollEndpoint) reads this flag to decide http:// vs https://, with no
+    # fallback/retry if it guesses wrong (unlike the OpAMP client's
+    # schemeFlip). A wss:// (or https://) edge_manager_url with this flag
+    # left false/unset makes enrollment fail permanently against a TLS-only
+    # ingress -- fatal after 10 attempts, then crash-loop under the service
+    # manager.
+    $edgeManagerTlsEnabled = $EdgeManagerUrl -match '^(wss|https)://'
+    $config | Add-Member -NotePropertyName "edge_manager_tls_enabled" -NotePropertyValue $edgeManagerTlsEnabled -Force
+    $DecodedWithTls = $config | ConvertTo-Json -Depth 10
+
+    # Write JSON (now carrying edge_manager_tls_enabled) to both current and
+    # historical config files.
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($ConfigFile, $DecodedWithTls, $utf8NoBom)
+    [System.IO.File]::WriteAllText($HistoricalConfigFile, $DecodedWithTls, $utf8NoBom)
+
+    Write-Host "Configuration saved to $ConfigFile"
+    Write-Host "Historical copy saved to $HistoricalConfigFile"
 }
 
 # Download the release bundle and extract it.
@@ -443,8 +456,11 @@ function Install-AsScheduledTask {
         New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
         Write-Host "Created log directory: $LogDir"
     }
-    $MachineGuid = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid).MachineGuid
-    Write-Host "MachineGuid: $MachineGuid"
+    # SECURITY: AGENT_ID is no longer derived on the client (previously the
+    # registry MachineGuid). A client-chosen UID is self-asserted identity.
+    # Identity is now server-assigned: the edge performs an enrollment exchange
+    # (/enroll) on first boot and persists the server-assigned instance_uid +
+    # per-agent token to edge-config.json.
 
     # Wrapper script that exports every env var the edge expects on boot
     # (LoadEdgeConfig will read these and persist to edge-config.json).
@@ -454,7 +470,8 @@ function Install-AsScheduledTask {
     # Keep aligned with internal/server/constant.go.
     $WrapperScript = @"
 @echo off
-set AGENT_ID=$MachineGuid
+REM AGENT_ID intentionally not set: identity is server-assigned via enrollment
+REM and persisted to edge-config.json on first boot.
 set SITE_ID=$SiteId
 set AUTH_TOKEN=$AuthToken
 set AGENT_VERSION=$AgentVersion

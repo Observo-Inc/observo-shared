@@ -1,34 +1,36 @@
 #!/bin/bash
 
 OBSERVO_HEADING="
-       #######    ######      #####     #######    ######     #     #    #######              #       ###
-       #     #    #     #    #     #    #          #     #    #     #    #     #             # #       #
-       #     #    #     #    #          #          #     #    #     #    #     #            #   #      #
-       #     #    ######      #####     #####      ######     #     #    #     #           #     #     #
-       #     #    #     #          #    #          #   #       #   #     #     #    ###    #######     #
-       #     #    #     #    #     #    #          #    #       # #      #     #    ###    #     #     #
-       #######    ######      #####     #######    #     #       #       #######    ###    #     #    ###
-
-
-
-
- ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### #####
-
-
-
-
- ####### ######   #####  #######    ### #     #  #####  #######    #    #       #          #    ####### ### ####### #     #
- #       #     # #     # #           #  ##    # #     #    #      # #   #       #         # #      #     #  #     # ##    #
- #       #     # #       #           #  # #   # #          #     #   #  #       #        #   #     #     #  #     # # #   #
- #####   #     # #  #### #####       #  #  #  #  #####     #    #     # #       #       #     #    #     #  #     # #  #  #
- #       #     # #     # #           #  #   # #       #    #    ####### #       #       #######    #     #  #     # #   # #
- #       #     # #     # #           #  #    ## #     #    #    #     # #       #       #     #    #     #  #     # #    ##
- ####### ######   #####  #######    ### #     #  #####     #    #     # ####### ####### #     #    #    ### ####### #     #
-
+       #######    ######      #####     #######    ######     #     #    #######              #       ###                      
+       #     #    #     #    #     #    #          #     #    #     #    #     #             # #       #                       
+       #     #    #     #    #          #          #     #    #     #    #     #            #   #      #                       
+       #     #    ######      #####     #####      ######     #     #    #     #           #     #     #                       
+       #     #    #     #          #    #          #   #       #   #     #     #    ###    #######     #                       
+       #     #    #     #    #     #    #          #    #       # #      #     #    ###    #     #     #                       
+       #######    ######      #####     #######    #     #       #       #######    ###    #     #    ###                      
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+ ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### ##### 
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+                                                                                                                               
+ ####### ######   #####  #######    ### #     #  #####  #######    #    #       #          #    ####### ### ####### #     #    
+ #       #     # #     # #           #  ##    # #     #    #      # #   #       #         # #      #     #  #     # ##    #    
+ #       #     # #       #           #  # #   # #          #     #   #  #       #        #   #     #     #  #     # # #   #    
+ #####   #     # #  #### #####       #  #  #  #  #####     #    #     # #       #       #     #    #     #  #     # #  #  #    
+ #       #     # #     # #           #  #   # #       #    #    ####### #       #       #######    #     #  #     # #   # #    
+ #       #     # #     # #           #  #    ## #     #    #    #     # #       #       #     #    #     #  #     # #    ##    
+ ####### ######   #####  #######    ### #     #  #####     #    #     # ####### ####### #     #    #    ### ####### #     #    
+                                                                                                                               
 "
 
 
-PREREQS="sudo curl jq sha1sum"
+# sha1sum was only needed to derive a client-side AGENT_ID, which has been
+# removed (identity is now server-assigned via enrollment). Dropped from prereqs.
+PREREQS="sudo curl jq"
 
 # -----------------------------------------------------------------------------
 # Path resolution: env var > platform default. Every variable below is
@@ -208,9 +210,6 @@ decode_and_extract_config() {
     # TODO CHECK THIS
     PAYLOAD=$(echo "$TOKEN" | base64 -d)
 
-    mkdir -p "$CONFIG_DIR"
-    echo "$PAYLOAD" > "$CONFIG_FILE" # Directly write payload to file
-
     SITE_ID=$(echo "$PAYLOAD" | jq -r '.site_id')
     AUTH_TOKEN=$(echo "$PAYLOAD" | jq -r '.auth_token')
     AGENT_VERSION=$(echo "$PAYLOAD" | jq -r '.agent_version')
@@ -218,6 +217,22 @@ decode_and_extract_config() {
     FLEET_ID=$(echo "$PAYLOAD" | jq -r '.fleet_id')
     PLATFORM=$(echo "$PAYLOAD" | jq -r '.platform')
     EDGE_MANAGER_URL=$(echo "$PAYLOAD" | jq -r '.edge_manager_url')
+
+    # edge_manager_tls_enabled is derived from the URL scheme rather than
+    # trusted from the payload: the enrollment HTTP client (EnsureEnrolled ->
+    # enrollEndpoint) reads this flag to decide http:// vs https://, with no
+    # fallback/retry if it guesses wrong (unlike the OpAMP client's
+    # schemeFlip). A wss:// (or https://) edge_manager_url with this flag
+    # left false/unset makes enrollment fail permanently against a TLS-only
+    # ingress -- fatal after 10 attempts, then crash-loop under systemd.
+    case "$EDGE_MANAGER_URL" in
+        wss://*|https://*) EDGE_MANAGER_TLS_ENABLED=true ;;
+        *)                 EDGE_MANAGER_TLS_ENABLED=false ;;
+    esac
+    PAYLOAD=$(echo "$PAYLOAD" | jq --argjson tls "$EDGE_MANAGER_TLS_ENABLED" '. + {edge_manager_tls_enabled: $tls}')
+
+    mkdir -p "$CONFIG_DIR"
+    echo "$PAYLOAD" > "$CONFIG_FILE" # Directly write payload to file
 
     echo "SITE_ID: $SITE_ID"
     echo "AUTH_TOKEN: $AUTH_TOKEN"
@@ -227,28 +242,12 @@ decode_and_extract_config() {
     echo "PLATFORM: $PLATFORM"
     echo "EDGE_MANAGER_URL: $EDGE_MANAGER_URL"
 
-    # Generate AGENT_ID from machine ID
-    echo "Generating AGENT_ID from machine ID..."
-    MachineId=$(cat /etc/machine-id 2>/dev/null || cat /var/lib/dbus/machine-id 2>/dev/null)
-    HostName=$(hostname)
-
-    if [ -z "$MachineId" ]; then
-        echo "Error: Could not read machine ID"
-        exit 1
-    fi
-
-    # Create composite string and generate proper UUID format
-    COMPOSITE_STRING="${MachineId}:${HostName}:${ARCH}"
-    echo "Composite string: $COMPOSITE_STRING"
-
-    # Generate SHA1 hash and format as proper UUID (8-4-4-4-12 format)
-    AGENT_ID=$(echo -n "$COMPOSITE_STRING" | sha1sum | sed 's/^\(........\)\(....\)\(....\)\(....\)\(............\).*/\1-\2-\3-\4-\5/')
-
-    echo "Machine ID: $MachineId"
-    echo "AGENT_ID (UUID): $AGENT_ID"
-
-    # Export AGENT_ID for use in other functions
-    export AGENT_ID
+    # SECURITY: the agent no longer self-generates AGENT_ID from machine-id /
+    # hostname. A client-chosen UID is self-asserted identity — any host could
+    # claim (or collide with) another agent's id. Identity is now assigned by
+    # the server: on first boot the edge performs an enrollment exchange
+    # (/enroll) and persists the server-assigned instance_uid + per-agent token
+    # to edge-config.json. Do NOT reintroduce AGENT_ID generation here.
 }
 
 
@@ -272,11 +271,11 @@ download_and_extract_agent() {
         echo "Error: Downloaded file not found at $TAR_FILE. URL may have expired or download failed."
         exit 1
     fi
-
+    
     # if the url is expired then it make smaller file size. Check if file size is suspiciously small (likely an error response)
     FILE_SIZE=$(stat -f%z "$TAR_FILE" 2>/dev/null || stat -c%s "$TAR_FILE" 2>/dev/null || echo "0")
     MIN_EXPECTED_SIZE=10240  # 10KB minimum for a valid tar.gz archive
-
+    
     if [[ $FILE_SIZE -lt $MIN_EXPECTED_SIZE ]]; then
         echo "Error: Downloaded file is too small ($FILE_SIZE bytes). Expected at least $MIN_EXPECTED_SIZE bytes."
         echo "This usually means the download URL has expired or returned an error response."
@@ -285,7 +284,7 @@ download_and_extract_agent() {
         echo ""
         exit 1
     fi
-
+    
     echo "Download completed and saved to $TAR_FILE (size: $FILE_SIZE bytes)"
 
     # Verify the downloaded tarball's SHA256 matches the value
@@ -510,7 +509,10 @@ User=root
 Group=root
 WorkingDirectory=$INSTALL_DIR
 
-Environment="AGENT_ID=$AGENT_ID"
+# NOTE: AGENT_ID is intentionally NOT set here. The edge obtains its
+# server-assigned identity via enrollment on first boot and persists it to
+# edge-config.json; injecting a client-side AGENT_ID would reintroduce the
+# self-asserted-identity risk.
 Environment="SITE_ID=$SITE_ID"
 Environment="AUTH_TOKEN=$AUTH_TOKEN"
 Environment="AGENT_VERSION=$AGENT_VERSION"
