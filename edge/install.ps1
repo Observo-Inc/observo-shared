@@ -246,16 +246,12 @@ function Decode-AndExtractConfig {
         exit 1
     }
 
-    # edge_manager_tls_enabled is derived from the URL scheme rather than
-    # trusted from the payload: the enrollment HTTP client (EnsureEnrolled ->
-    # enrollEndpoint) reads this flag to decide http:// vs https://, with no
-    # fallback/retry if it guesses wrong (unlike the OpAMP client's
-    # schemeFlip). A wss:// (or https://) edge_manager_url with this flag
-    # left false/unset makes enrollment fail permanently against a TLS-only
-    # ingress -- fatal after 10 attempts, then crash-loop under the service
-    # manager.
-    $edgeManagerTlsEnabled = $EdgeManagerUrl -match '^(wss|https)://'
-    $config | Add-Member -NotePropertyName "edge_manager_tls_enabled" -NotePropertyValue $edgeManagerTlsEnabled -Force
+    # edge_manager_tls_enabled is always set true: every supported deployment
+    # terminates TLS at the edge-manager ingress, and the enrollment HTTP
+    # client (EnsureEnrolled -> enrollEndpoint) reads this flag to decide
+    # http:// vs https://, with no fallback/retry if it guesses wrong (unlike
+    # the OpAMP client's schemeFlip).
+    $config | Add-Member -NotePropertyName "edge_manager_tls_enabled" -NotePropertyValue $true -Force
     $DecodedWithTls = $config | ConvertTo-Json -Depth 10
 
     # Write JSON (now carrying edge_manager_tls_enabled) to both current and

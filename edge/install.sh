@@ -225,18 +225,12 @@ decode_and_extract_config() {
     PLATFORM=$(echo "$PAYLOAD" | jq -r '.platform')
     EDGE_MANAGER_URL=$(echo "$PAYLOAD" | jq -r '.edge_manager_url')
 
-    # edge_manager_tls_enabled is derived from the URL scheme rather than
-    # trusted from the payload: the enrollment HTTP client (EnsureEnrolled ->
-    # enrollEndpoint) reads this flag to decide http:// vs https://, with no
-    # fallback/retry if it guesses wrong (unlike the OpAMP client's
-    # schemeFlip). A wss:// (or https://) edge_manager_url with this flag
-    # left false/unset makes enrollment fail permanently against a TLS-only
-    # ingress -- fatal after 10 attempts, then crash-loop under systemd.
-    case "$EDGE_MANAGER_URL" in
-        wss://*|https://*) EDGE_MANAGER_TLS_ENABLED=true ;;
-        *)                 EDGE_MANAGER_TLS_ENABLED=false ;;
-    esac
-    PAYLOAD=$(echo "$PAYLOAD" | jq --argjson tls "$EDGE_MANAGER_TLS_ENABLED" '. + {edge_manager_tls_enabled: $tls}')
+    # edge_manager_tls_enabled is always set true: every supported deployment
+    # terminates TLS at the edge-manager ingress, and the enrollment HTTP
+    # client (EnsureEnrolled -> enrollEndpoint) reads this flag to decide
+    # http:// vs https://, with no fallback/retry if it guesses wrong (unlike
+    # the OpAMP client's schemeFlip).
+    PAYLOAD=$(echo "$PAYLOAD" | jq --argjson tls true '. + {edge_manager_tls_enabled: $tls}')
 
     mkdir -p "$CONFIG_DIR"
     echo "$PAYLOAD" > "$CONFIG_FILE" # Directly write payload to file
