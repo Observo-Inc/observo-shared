@@ -54,6 +54,13 @@ LOG_DIR="${LOG_DIR:-$ROOT_DIR/logs}"
 # Must match server.DefaultUpdateStagingDir in
 # internal/server/constant_linux.go ($ROOT_DIR/update).
 UPDATE_DIR="${UPDATE_DIR:-$ROOT_DIR/update}"
+# DATA_DIR is where the Vector-based worker persists its own state (file
+# checkpoints, buffers, etc). Every edge-config.json sets data_dir to this
+# path, and the worker's config validation hard-fails (exit 78) if it
+# doesn't already exist -- the worker does not create it itself. Must
+# match server.DefaultWorkerDataDir in internal/server/constant_linux.go
+# ($ROOT_DIR/data).
+DATA_DIR="${DATA_DIR:-$ROOT_DIR/data}"
 TMP_DIR="${TMP_DIR:-/tmp/observo}"
 TAR_FILE="$TMP_DIR/edge.tar.gz"
 EXTRACT_DIR="$TMP_DIR/binaries_edge"
@@ -447,9 +454,10 @@ setup_directories() {
     #   $ROOT_DIR/                  binaries + edge-config.json + effective.yaml
     #   $ROOT_DIR/logs/             edge-worker, supervisor, update-watcher logs
     #   $ROOT_DIR/update/           staging dir + heartbeat socket + flag file
+    #   $ROOT_DIR/data/             worker data_dir (file checkpoints, buffers)
     # Single chown -R later normalises ownership across the whole tree.
     echo "Setting up edge directory tree under $ROOT_DIR"
-    for d in "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"; do
+    for d in "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" "$DATA_DIR"; do
         if [ ! -d "$d" ]; then
             echo "  creating $d"
             sudo mkdir -p "$d" || { echo "Failed to create $d"; exit 1; }
@@ -457,9 +465,9 @@ setup_directories() {
     done
 
     echo "Setting ownership to root:root (edge runs as root)"
-    sudo chown root:root "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" \
+    sudo chown root:root "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" "$DATA_DIR" \
         || { echo "Failed to set ownership on edge directories"; exit 1; }
-    sudo chmod 0755 "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"
+    sudo chmod 0755 "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" "$DATA_DIR"
 }
 
 create_systemd_service() {

@@ -34,6 +34,13 @@ LOG_DIR="${LOG_DIR:-$ROOT_DIR/logs}"
 # Must match server.DefaultUpdateStagingDir in
 # internal/server/constant_darwin.go ($ROOT_DIR/update).
 UPDATE_DIR="${UPDATE_DIR:-$ROOT_DIR/update}"
+# DATA_DIR is where the Vector-based worker persists its own state (file
+# checkpoints, buffers, etc). Every edge-config.json sets data_dir to this
+# path, and the worker's config validation hard-fails (exit 78) if it
+# doesn't already exist -- the worker does not create it itself. Must
+# match server.DefaultWorkerDataDir in internal/server/constant_darwin.go
+# ($ROOT_DIR/data).
+DATA_DIR="${DATA_DIR:-$ROOT_DIR/data}"
 TMP_DIR="${TMP_DIR:-/tmp/observo}"
 TAR_FILE="$TMP_DIR/edge.tar.gz"
 EXTRACT_DIR="$TMP_DIR/binaries_edge"
@@ -252,9 +259,10 @@ install_binaries() {
     #   $ROOT_DIR/        binaries + edge-config.json + effective.yaml
     #   $ROOT_DIR/logs/   supervisor + worker + update-watcher logs
     #   $ROOT_DIR/update/ staging dir + heartbeat socket + flag file
-    mkdir -p "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"
-    chown root:wheel "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"
-    chmod 0755 "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR"
+    #   $ROOT_DIR/data/   worker data_dir (file checkpoints, buffers)
+    mkdir -p "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" "$DATA_DIR"
+    chown root:wheel "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" "$DATA_DIR"
+    chmod 0755 "$ROOT_DIR" "$LOG_DIR" "$UPDATE_DIR" "$DATA_DIR"
     install_binary "$EDGE_BINARY_NAME"    "$EDGE_EXECUTABLE"
     install_binary "$WATCHER_BINARY_NAME" "$WATCHER_EXECUTABLE"
     install_binary "$WORKER_BINARY_NAME"  "$WORKER_EXECUTABLE_PATH"

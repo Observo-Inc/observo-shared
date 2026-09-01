@@ -53,6 +53,13 @@ $LogDir     = Get-EnvOrDefault "LOG_DIR"     "$RootDir\logs"
 # match server.DefaultUpdateStagingDir in
 # internal/server/constant_windows.go ($RootDir\update).
 $UpdateDir = Get-EnvOrDefault "UPDATE_DIR" "$RootDir\update"
+# DataDir is where the Vector-based worker persists its own state (file
+# checkpoints, buffers, etc). Every edge-config.json sets data_dir to this
+# path, and the worker's config validation hard-fails (exit 78) if it
+# doesn't already exist -- the worker does not create it itself. Must
+# match server.DefaultWorkerDataDir in internal/server/constant_windows.go
+# ($RootDir\data).
+$DataDir = Get-EnvOrDefault "DATA_DIR" "$RootDir\data"
 $TmpDir     = Get-EnvOrDefault "TMP_DIR"     "$env:TEMP\observo"
 $ZipFile    = "$TmpDir\edge.zip"
 $ExtractDir = "$TmpDir\binaries_edge"
@@ -339,7 +346,8 @@ function Move-BinariesToInstallDir {
     #   $RootDir\           binaries + edge-config.json + effective.yaml
     #   $RootDir\logs\      supervisor + worker + update-watcher logs
     #   $RootDir\update\    staging dir + heartbeat (if used) + flag file
-    foreach ($d in @($RootDir, $LogDir, $UpdateDir)) {
+    #   $RootDir\data\      worker data_dir (file checkpoints, buffers)
+    foreach ($d in @($RootDir, $LogDir, $UpdateDir, $DataDir)) {
         if (-not (Test-Path -Path $d)) {
             New-Item -ItemType Directory -Path $d -Force | Out-Null
             Write-Host "Created directory: $d"
